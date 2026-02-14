@@ -1,0 +1,18 @@
+[project]
+name = "decision-engine"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "aiokafka",
+    "sqlalchemy",
+    "psycopg2-binary",
+    "alembic",
+    "redis",
+    "qdrant-client",
+    "openai",
+    "langchain",
+    "python-dotenv",
+    "pydantic"
+]

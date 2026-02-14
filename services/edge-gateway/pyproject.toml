@@ -1,0 +1,14 @@
+[project]
+name = "edge-gateway"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "confluent-kafka",
+    "python-dotenv",
+    "requests",
+    "asyncio",
+    "jsonschema",
+    "pydantic",
+    "ultralytics",
+    "opencv-python-headless"
+]

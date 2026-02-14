@@ -1,0 +1,14 @@
+[project]
+name = "rag-chat"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "langchain",
+    "langchain-community",
+    "langchain-openai",
+    "qdrant-client",
+    "python-dotenv",
+    "pydantic"
+]
