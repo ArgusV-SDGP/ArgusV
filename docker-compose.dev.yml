@@ -26,6 +26,39 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: argus-kafka-init
+    depends_on:
+      - kafka
+    entrypoint: [ '/bin/sh', '-c' ]
+    command: |
+      "
+      # 1. Wait for Kafka to be ready
+      echo 'Waiting for Kafka broker to be available...'
+      cub kafka-ready -b kafka:29092 1 60
+      
+      echo 'Kafka is up! Creating topics...'
+      
+      # 2. Define standard topics (Retention in ms: 1h=3600000, 24h=86400000, 7d=604800000)
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic raw-detections --partitions 4 --config retention.ms=3600000
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic vlm-requests --partitions 4 --config retention.ms=3600000
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic vlm-results --partitions 4 --config retention.ms=86400000
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic actions --partitions 4 --config retention.ms=86400000
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic config-updates --partitions 1 --config retention.ms=604800000
+      
+      # 3. Define Dead Letter Queues (DLQs)
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic raw-detections.dlq --partitions 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic vlm-requests.dlq --partitions 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic vlm-results.dlq --partitions 1
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic actions.dlq --partitions 1
+      
+      echo '--------------------------------------------------'
+      echo 'Successfully created the following topics:'
+      kafka-topics --bootstrap-server kafka:29092 --list
+      echo '--------------------------------------------------'
+      "
+
   postgres:
     image: postgres:15-alpine
     environment:
@@ -85,9 +118,13 @@ services:
       RTSP_URLS: "rtsp://simulator:8554/stream"
     volumes:
       - ./services/edge-gateway:/app
+      - ./libs/shared:/app/shared
     command: python src/main.py
     depends_on:
-      - kafka
+      kafka:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
 
   stream-ingestion:
     build: ./services/stream-ingestion
@@ -101,12 +138,19 @@ services:
       MINIO_SECRET_KEY: minioadmin
     volumes:
       - ./services/stream-ingestion:/app
+      - ./libs/shared:/app/shared
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
-      - kafka
-      - postgres
-      - redis
-      - minio
+      kafka:
+        condition: service_started
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
 
   vlm-inference:
     build: ./services/vlm-inference
@@ -116,9 +160,13 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
     volumes:
       - ./services/vlm-inference:/app
+      - ./libs/shared:/app/shared
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
-      - kafka
+      kafka:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
 
   decision-engine:
     build: ./services/decision-engine
@@ -131,12 +179,19 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
     volumes:
       - ./services/decision-engine:/app
+      - ./libs/shared:/app/shared
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
-      - kafka
-      - postgres
-      - redis
-      - qdrant
+      kafka:
+        condition: service_started
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
 
   rag-chat:
     build: ./services/rag-chat
@@ -148,6 +203,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
     volumes:
       - ./services/rag-chat:/app
+      - ./libs/shared:/app/shared
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       - qdrant
@@ -160,9 +216,13 @@ services:
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
     volumes:
       - ./services/notification:/app
+      - ./libs/shared:/app/shared
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
-      - kafka
+          kafka:
+            condition: service_started
+          kafka-init:
+            condition: service_completed_successfully
 
   actuation:
     build: ./services/actuation
@@ -172,10 +232,15 @@ services:
       MQTT_BROKER: mosquitto
     volumes:
       - ./services/actuation:/app
+      - ./libs/shared:/app/shared
     command: python src/main.py
     depends_on:
-      - kafka
-      - mosquitto
+      kafka:
+        condition: service_started
+      mosquitto:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
 
   dashboard:
     build: ./services/dashboard
@@ -185,6 +250,7 @@ services:
     volumes:
       - ./services/dashboard:/app
       - /app/node_modules
+      - ./libs/shared:/app/shared
     command: npm run dev -- --host
     depends_on:
       - decision-engine
