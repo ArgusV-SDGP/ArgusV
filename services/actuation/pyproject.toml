@@ -6,7 +6,6 @@ dependencies = [
     "aiokafka",
     "paho-mqtt",
     "requests",
-    "rpi.gpio",
     "python-dotenv",
     "pydantic"
 ]
