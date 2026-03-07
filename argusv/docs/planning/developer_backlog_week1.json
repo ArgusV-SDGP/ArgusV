@@ -1,0 +1,208 @@
+{
+  "project": "ArgusV",
+  "scope_root": "/Users/induvaray/Desktop/All Projects/SDGP/ArgusV/argusv",
+  "source_plan_file": "flow_definition_week1.json",
+  "sprint_window": {
+    "start": "2026-03-09",
+    "end": "2026-03-15"
+  },
+  "pairing_matrix_by_phase": [
+    {
+      "phase": "Phase-1",
+      "dates": ["2026-03-09", "2026-03-10"],
+      "pairs": [
+        {"pair_id": "P1", "developers": ["DEV-1", "DEV-2"], "flow": "FLOW-A-core-realtime-detection-and-recording"},
+        {"pair_id": "P2", "developers": ["DEV-3", "DEV-4"], "flow": "FLOW-B-api-ui-zones-incidents-recordings"},
+        {"pair_id": "P3", "developers": ["DEV-5", "DEV-6"], "flow": "FLOW-C-ai-auth-notifications-observability"}
+      ]
+    },
+    {
+      "phase": "Phase-2",
+      "dates": ["2026-03-11", "2026-03-12"],
+      "pairs": [
+        {"pair_id": "P1", "developers": ["DEV-1", "DEV-2"], "flow": "FLOW-B-api-ui-zones-incidents-recordings"},
+        {"pair_id": "P2", "developers": ["DEV-3", "DEV-4"], "flow": "FLOW-C-ai-auth-notifications-observability"},
+        {"pair_id": "P3", "developers": ["DEV-5", "DEV-6"], "flow": "FLOW-A-core-realtime-detection-and-recording"}
+      ]
+    },
+    {
+      "phase": "Phase-3",
+      "dates": ["2026-03-13", "2026-03-14"],
+      "pairs": [
+        {"pair_id": "P1", "developers": ["DEV-1", "DEV-2"], "flow": "FLOW-C-ai-auth-notifications-observability"},
+        {"pair_id": "P2", "developers": ["DEV-3", "DEV-4"], "flow": "FLOW-A-core-realtime-detection-and-recording"},
+        {"pair_id": "P3", "developers": ["DEV-5", "DEV-6"], "flow": "FLOW-B-api-ui-zones-incidents-recordings"}
+      ]
+    },
+    {
+      "phase": "Phase-4",
+      "dates": ["2026-03-15"],
+      "pairs": [
+        {"pair_id": "P1", "developers": ["DEV-1", "DEV-2"], "flow": "FLOW-A-core-realtime-detection-and-recording", "mode": "regression"},
+        {"pair_id": "P2", "developers": ["DEV-3", "DEV-4"], "flow": "FLOW-B-api-ui-zones-incidents-recordings", "mode": "regression"},
+        {"pair_id": "P3", "developers": ["DEV-5", "DEV-6"], "flow": "FLOW-C-ai-auth-notifications-observability", "mode": "regression"}
+      ]
+    }
+  ],
+  "developers": [
+    {
+      "developer_id": "DEV-1",
+      "primary_strength": "pipeline_backend",
+      "quick_learn": [
+        "src/workers/pipeline_worker.py",
+        "src/workers/edge_worker.py",
+        "src/events/maintainer.py"
+      ],
+      "daily_backlog": [
+        {"date": "2026-03-09", "tasks": ["DET-01", "DET-02", "DET-03", "PIPE-01"], "deliverable": "stable detection event lifecycle and queue flow"},
+        {"date": "2026-03-10", "tasks": ["DET-04", "DET-05", "DET-06", "DET-07"], "deliverable": "advanced detection features implemented or feature-flagged"},
+        {"date": "2026-03-11", "tasks": ["API-12", "API-13", "DNVR-01", "DNVR-02"], "deliverable": "recordings API + player baseline"},
+        {"date": "2026-03-12", "tasks": ["API-14", "API-15", "DNVR-03", "DNVR-04"], "deliverable": "timeline/replay endpoints and markers"},
+        {"date": "2026-03-13", "tasks": ["NOTIF-01", "NOTIF-02", "NOTIF-03", "NOTIF-04"], "deliverable": "multi-channel dispatch routing complete"},
+        {"date": "2026-03-14", "tasks": ["NOTIF-05", "NOTIF-06", "PIPE-05", "PTZ-01"], "deliverable": "actuation worker and MQTT path active"},
+        {"date": "2026-03-15", "tasks": ["TEST-05", "WATCH-08"], "deliverable": "regression pass and metrics verification"}
+      ],
+      "handoffs": [
+        {"to": "DEV-2", "artifacts": ["pipeline contracts", "failure modes", "queue limits"]},
+        {"to": "DEV-6", "artifacts": ["notification event payload schema"]}
+      ]
+    },
+    {
+      "developer_id": "DEV-2",
+      "primary_strength": "recording_replay_backend",
+      "quick_learn": [
+        "src/workers/recording_worker.py",
+        "src/workers/cleanup_worker.py",
+        "src/output/preview.py"
+      ],
+      "daily_backlog": [
+        {"date": "2026-03-09", "tasks": ["REC-01", "REC-02", "REC-03", "REC-04"], "deliverable": "segment writer and DB persistence complete"},
+        {"date": "2026-03-10", "tasks": ["REC-05", "REC-06", "REC-07", "REC-09"], "deliverable": "segment bus linkage and replay data consistency"},
+        {"date": "2026-03-11", "tasks": ["DNVR-06", "DNVR-07", "DNVR-08", "API-27"], "deliverable": "recordings UX advanced controls and stats API"},
+        {"date": "2026-03-12", "tasks": ["API-10", "API-11", "ZONE-10", "ZONE-11"], "deliverable": "zone update/delete backend refinements"},
+        {"date": "2026-03-13", "tasks": ["PTZ-02", "PTZ-03", "NOTIF-07"], "deliverable": "PTZ action path integrated"},
+        {"date": "2026-03-14", "tasks": ["WATCH-02", "WATCH-03", "WATCH-05"], "deliverable": "watchdog camera restart and failover"},
+        {"date": "2026-03-15", "tasks": ["REC-10", "REC-11", "PIPE-12", "DB-09"], "deliverable": "cleanup/retention regression and release hardening"}
+      ],
+      "handoffs": [
+        {"to": "DEV-1", "artifacts": ["segment schema + replay contract"]},
+        {"to": "DEV-3", "artifacts": ["watchdog behavior and health endpoints"]}
+      ]
+    },
+    {
+      "developer_id": "DEV-3",
+      "primary_strength": "api_design_and_security",
+      "quick_learn": [
+        "src/auth/jwt_handler.py",
+        "src/api/routes/zones.py",
+        "src/api/server.py"
+      ],
+      "daily_backlog": [
+        {"date": "2026-03-09", "tasks": ["ZONE-01", "ZONE-02", "ZONE-03"], "deliverable": "zone list/create + validation + redis publish"},
+        {"date": "2026-03-10", "tasks": ["ZONE-04", "ZONE-07", "ZONE-08"], "deliverable": "zone management policy and edge sync reliability"},
+        {"date": "2026-03-11", "tasks": ["AUTH-01", "AUTH-06"], "deliverable": "token issue and API key auth"},
+        {"date": "2026-03-12", "tasks": ["AUTH-07", "AUTH-02"], "deliverable": "refresh flow and RBAC enforcement baseline"},
+        {"date": "2026-03-13", "tasks": ["DET-01", "DET-02", "REC-13", "REC-14"], "deliverable": "event linking refinements + snapshot hook"},
+        {"date": "2026-03-14", "tasks": ["REC-15", "DB-07", "WATCH-06", "WATCH-07"], "deliverable": "seed data + reliability checks + thumbnail updates"},
+        {"date": "2026-03-15", "tasks": ["ZONE-01", "ZONE-10", "ZONE-11"], "deliverable": "regression of zone API with auth enabled"}
+      ],
+      "handoffs": [
+        {"to": "DEV-4", "artifacts": ["auth middleware contracts", "zone API payloads"]},
+        {"to": "DEV-5", "artifacts": ["RBAC matrix by endpoint"]}
+      ]
+    },
+    {
+      "developer_id": "DEV-4",
+      "primary_strength": "ai_platform_and_observability",
+      "quick_learn": [
+        "src/genai/manager.py",
+        "src/embeddings/embeddings.py",
+        "src/stats/emitter.py"
+      ],
+      "daily_backlog": [
+        {"date": "2026-03-09", "tasks": ["API-16", "API-17", "DCFG-01"], "deliverable": "incident detail/update API baseline"},
+        {"date": "2026-03-10", "tasks": ["DCFG-02", "DCFG-04", "DCFG-05", "DCFG-06"], "deliverable": "incident/zone UI workflows connected"},
+        {"date": "2026-03-11", "tasks": ["VLM-01", "VLM-02", "VLM-03"], "deliverable": "provider abstraction + structured summaries"},
+        {"date": "2026-03-12", "tasks": ["VLM-04", "VLM-05", "VLM-06"], "deliverable": "chat/search endpoints first production pass"},
+        {"date": "2026-03-13", "tasks": ["DET-03", "DET-04", "REC-04", "REC-05"], "deliverable": "flow-A stabilization during rotation"},
+        {"date": "2026-03-14", "tasks": ["WATCH-08", "API-27", "DLIVE-08"], "deliverable": "metrics exposure + birdseye implementation"},
+        {"date": "2026-03-15", "tasks": ["API-12", "API-13", "API-14", "API-15"], "deliverable": "replay endpoint regression and performance check"}
+      ],
+      "handoffs": [
+        {"to": "DEV-3", "artifacts": ["VLM auth integration points"]},
+        {"to": "DEV-6", "artifacts": ["chat/search API schema"]}
+      ]
+    },
+    {
+      "developer_id": "DEV-5",
+      "primary_strength": "frontend_incidents_zones",
+      "quick_learn": [
+        "static/incidents.html",
+        "static/zones.html",
+        "src/api/routes/incidents.py"
+      ],
+      "daily_backlog": [
+        {"date": "2026-03-09", "tasks": ["AUTH-03", "TEST-01"], "deliverable": "proxy-auth decision and fixture baseline"},
+        {"date": "2026-03-10", "tasks": ["TEST-02", "TEST-05"], "deliverable": "queue/api tests with mocks"},
+        {"date": "2026-03-11", "tasks": ["REC-10", "REC-11", "DB-09"], "deliverable": "cleanup worker and incident auto-resolve"},
+        {"date": "2026-03-12", "tasks": ["PIPE-12", "DET-05", "DET-06"], "deliverable": "retention + advanced detection controls"},
+        {"date": "2026-03-13", "tasks": ["ZONE-01", "ZONE-02", "DCFG-04", "DCFG-05"], "deliverable": "zones UI polish with auth"},
+        {"date": "2026-03-14", "tasks": ["API-16", "API-17", "DCFG-01", "DCFG-02"], "deliverable": "incidents UI/API final integration"},
+        {"date": "2026-03-15", "tasks": ["DNVR-08", "DNVR-07"], "deliverable": "incident to replay deep-link QA"}
+      ],
+      "handoffs": [
+        {"to": "DEV-6", "artifacts": ["UI interaction specs", "incident filters and status model"]},
+        {"to": "DEV-4", "artifacts": ["test cases and expected API payloads"]}
+      ]
+    },
+    {
+      "developer_id": "DEV-6",
+      "primary_strength": "frontend_recordings_and_rag",
+      "quick_learn": [
+        "static/recordings.html",
+        "src/api/routes/recordings.py",
+        "src/embeddings/embeddings.py"
+      ],
+      "daily_backlog": [
+        {"date": "2026-03-09", "tasks": ["VLM-07", "VLM-08"], "deliverable": "embedding pipeline and vector storage integration"},
+        {"date": "2026-03-10", "tasks": ["VLM-09", "VLM-05"], "deliverable": "face/LPR hooks and chat grounding"},
+        {"date": "2026-03-11", "tasks": ["REC-01", "REC-02", "REC-03"], "deliverable": "recording ingestion support in rotated flow"},
+        {"date": "2026-03-12", "tasks": ["REC-06", "REC-07", "REC-09"], "deliverable": "recording metadata correctness"},
+        {"date": "2026-03-13", "tasks": ["DNVR-01", "DNVR-02", "DNVR-03", "DNVR-04"], "deliverable": "recordings page full shell + playback + timeline"},
+        {"date": "2026-03-14", "tasks": ["DNVR-05", "DNVR-06", "API-12", "API-13"], "deliverable": "bbox overlay + events-only filtering + API integration"},
+        {"date": "2026-03-15", "tasks": ["API-14", "API-15", "DNVR-08"], "deliverable": "incident replay final QA and demo script"}
+      ],
+      "handoffs": [
+        {"to": "DEV-5", "artifacts": ["replay URLs", "deep-link parameters"]},
+        {"to": "DEV-1", "artifacts": ["RAG query output schema"]}
+      ]
+    }
+  ],
+  "task_primary_owner_map": {
+    "API-10": "DEV-2", "API-11": "DEV-2", "API-12": "DEV-1", "API-13": "DEV-1", "API-14": "DEV-6", "API-15": "DEV-6", "API-16": "DEV-4", "API-17": "DEV-4", "API-27": "DEV-2",
+    "AUTH-01": "DEV-3", "AUTH-02": "DEV-3", "AUTH-03": "DEV-5", "AUTH-06": "DEV-3", "AUTH-07": "DEV-3",
+    "ZONE-01": "DEV-3", "ZONE-02": "DEV-3", "ZONE-03": "DEV-3", "ZONE-04": "DEV-3", "ZONE-07": "DEV-3", "ZONE-08": "DEV-3", "ZONE-10": "DEV-2", "ZONE-11": "DEV-2",
+    "DCFG-01": "DEV-4", "DCFG-02": "DEV-4", "DCFG-04": "DEV-5", "DCFG-05": "DEV-5", "DCFG-06": "DEV-4",
+    "DNVR-01": "DEV-6", "DNVR-02": "DEV-6", "DNVR-03": "DEV-6", "DNVR-04": "DEV-6", "DNVR-05": "DEV-6", "DNVR-06": "DEV-6", "DNVR-07": "DEV-2", "DNVR-08": "DEV-5",
+    "DET-01": "DEV-1", "DET-02": "DEV-1", "DET-03": "DEV-4", "DET-04": "DEV-1", "DET-05": "DEV-1", "DET-06": "DEV-1", "DET-07": "DEV-1",
+    "PIPE-01": "DEV-1", "PIPE-05": "DEV-1", "PIPE-12": "DEV-5",
+    "REC-01": "DEV-2", "REC-02": "DEV-2", "REC-03": "DEV-2", "REC-04": "DEV-2", "REC-05": "DEV-2", "REC-06": "DEV-2", "REC-07": "DEV-2", "REC-09": "DEV-2", "REC-10": "DEV-5", "REC-11": "DEV-5", "REC-13": "DEV-3", "REC-14": "DEV-3", "REC-15": "DEV-3",
+    "DB-07": "DEV-3", "DB-09": "DEV-5",
+    "VLM-01": "DEV-4", "VLM-02": "DEV-4", "VLM-03": "DEV-4", "VLM-04": "DEV-4", "VLM-05": "DEV-6", "VLM-06": "DEV-4", "VLM-07": "DEV-6", "VLM-08": "DEV-6", "VLM-09": "DEV-6",
+    "NOTIF-01": "DEV-1", "NOTIF-02": "DEV-1", "NOTIF-03": "DEV-1", "NOTIF-04": "DEV-1", "NOTIF-05": "DEV-1", "NOTIF-06": "DEV-1", "NOTIF-07": "DEV-2",
+    "PTZ-01": "DEV-1", "PTZ-02": "DEV-2", "PTZ-03": "DEV-2",
+    "WATCH-02": "DEV-2", "WATCH-03": "DEV-2", "WATCH-05": "DEV-2", "WATCH-06": "DEV-3", "WATCH-07": "DEV-3", "WATCH-08": "DEV-4",
+    "DLIVE-08": "DEV-4",
+    "TEST-01": "DEV-5", "TEST-02": "DEV-5", "TEST-05": "DEV-5"
+  },
+  "coverage_check": {
+    "status": "all_master_tasks_have_primary_owner",
+    "unassigned_task_ids": []
+  },
+  "coordination_rules": [
+    "Twice-daily merge windows: 12:30 and 18:00",
+    "No task can stay in-progress for more than 1 day without split",
+    "Any blocked task is reassigned within 2 hours",
+    "Feature-flag incomplete advanced capabilities by Day-6 18:00"
+  ]
+}

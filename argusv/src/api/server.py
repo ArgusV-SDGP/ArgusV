@@ -15,12 +15,16 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-import config as cfg
 from bus import bus
 from api.ws_handler import manager
+from api.routes.cameras import router as cameras_router
+from api.routes.zones import router as zones_router
+from api.routes.incidents import router as incidents_router
+from api.routes.recordings import router as recordings_router
+from api.routes.configuration import router as configuration_router
 from workers.edge_worker import start_cameras, stop_cameras, cameras_health
 from workers.pipeline_worker import (
     stream_ingestion_worker,
@@ -71,6 +75,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ArgusV", version="1.0", lifespan=lifespan)
+app.include_router(cameras_router)
+app.include_router(zones_router)
+app.include_router(incidents_router)
+app.include_router(recordings_router)
+app.include_router(configuration_router)
 
 # ── Mount static files ────────────────────────────────────────────────────────
 if STATIC_DIR.exists():
@@ -118,31 +127,6 @@ _START_TIME = time.time()
 
 
 # ── REST: Recordings + Incidents (from replay_api.py logic) ──────────────────
-
-@app.get("/api/cameras")
-async def list_cameras():
-    from db.connection import get_db_sync
-    from db.models import Camera
-    import redis as _redis, json as _json
-    r = _redis.from_url(cfg.REDIS_URL, decode_responses=True)
-    db = get_db_sync()
-    try:
-        cams = db.query(Camera).all()
-        result = []
-        for c in cams:
-            online = r.exists(f"camera:status:{c.camera_id}") == 1
-            result.append({
-                "camera_id":  c.camera_id,
-                "name":       c.name,
-                "status":     "online" if online else "offline",
-                "last_seen":  c.last_seen.isoformat() if c.last_seen else None,
-                "fps":        c.fps,
-                "resolution": c.resolution,
-            })
-        return result
-    finally:
-        db.close()
-
 
 @app.get("/api/incidents")
 async def list_incidents(
@@ -211,27 +195,5 @@ async def search_detections(
             }
             for d in dets
         ]
-    finally:
-        db.close()
-
-
-# ── Recording replay (proxy to existing replay_api endpoints) ─────────────────
-
-@app.get("/api/recordings/{camera_id}/playlist")
-async def recordings_playlist(camera_id: str, start: str, end: str):
-    # Re-use existing replay_api logic
-    import sys
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "decision-engine" / "src"))
-    from replay_api import get_hls_playlist
-    from datetime import datetime
-    from db.connection import get_db_sync
-    db = get_db_sync()
-    try:
-        return get_hls_playlist(
-            camera_id=camera_id,
-            start=datetime.fromisoformat(start),
-            end=datetime.fromisoformat(end),
-            db=db,
-        )
     finally:
         db.close()
