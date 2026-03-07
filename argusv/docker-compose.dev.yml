@@ -1,0 +1,59 @@
+# ArgusV Dev — Infrastructure only (no app build)
+# Run: docker compose -f docker-compose.dev.yml up -d
+# Then: run uvicorn locally with live reload
+
+services:
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: argus-postgres-dev
+    environment:
+      POSTGRES_USER: argus
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: argus_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U argus -d argus_db" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: argus-redis-dev
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_dev_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Live stream re-broadcaster (RTSP → HLS for dashboard)
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: argus-mediamtx-dev
+    ports:
+      - "8554:8554" # RTSP input
+      - "8888:8888" # HLS output
+      - "8889:8889" # WebRTC output
+    environment:
+      MTX_PROTOCOLS: tcp
+      MTX_HLSADDRESS: :8888
+      MTX_RTSPADDRESS: :8554
+      MTX_WEBRTCADDRESS: :8889
+      MTX_HLSALWAYSREMUX: "yes"
+      MTX_HLSSEGMENTCOUNT: "3"
+      MTX_HLSSEGMENTDURATION: 2s
+      MTX_HLSALLOWORIGIN: "*"
+      MTX_LOGLEVEL: info
+      MTX_API: "yes"
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data:

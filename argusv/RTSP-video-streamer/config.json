@@ -1,0 +1,14 @@
+[
+    {
+        "name": "Camera 1 (Front)",
+        "file_path": "C:\\Users\\sabesonk\\Videos\\Captures\\Dream Weddings - Plan Your Perfect Wedding in Sri Lanka - Google Chrome 2026-02-14 10-56-46.mp4",
+        "rtsp_url": "rtsp://127.0.0.1:8554/cam-01",
+        "loop": true
+    },
+    {
+        "name": "Camera 2 (Back)",
+        "file_path": "C:\\Users\\sabesonk\\Videos\\Captures\\Dream Weddings - Plan Your Perfect Wedding in Sri Lanka - Google Chrome 2026-02-14 10-56-46.mp4",
+        "rtsp_url": "rtsp://0.0.0.0:8554/cam2",
+        "loop": true
+    }
+]

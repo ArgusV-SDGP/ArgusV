@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>ArgusV — Incidents</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0a0c10;
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        p {
+            color: #64748b;
+            font-size: 14px;
+        }
+
+        a {
+            color: #3b82f6;
+            text-decoration: none;
+        }
+
+        .badge {
+            background: #1a1d24;
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-radius: 8px;
+            padding: 24px 32px;
+            text-align: center;
+        }
+
+        .task {
+            font-family: monospace;
+            font-size: 11px;
+            color: #f97316;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="badge">
+        <h1>🚨 Incident History</h1>
+        <p>Sortable incident log — coming soon</p>
+        <div class="task">Tasks: DCFG-01, DCFG-02, API-16, API-17</div>
+        <br /><a href="/">← Back to Live Feed</a>
+    </div>
+    <!-- TODO DCFG-01: incident list with camera/severity/status filters -->
+    <!-- TODO DCFG-02: resolve button → PATCH /api/incidents/{id} -->
+</body>
+
+</html>

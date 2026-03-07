@@ -1,0 +1,31 @@
+# Ultralytics ByteTrack tracker configuration
+# Task INF-12
+# Place in YOLO working dir OR pass path to model.track(tracker="bytetrack.yaml")
+
+
+
+tracker_type: bytetrack
+
+
+
+
+# Detection thresholds
+track_high_thresh: 0.5      # High confidence detection threshold
+
+track_low_thresh:  0.1      # Low confidence detection threshold
+
+new_track_thresh:  0.6      # New track creation threshold
+
+
+
+
+# Track buffer — frames to keep a lost track alive (at 5fps × 5s = 25)
+track_buffer: 30
+
+
+
+
+# Association thresholds
+match_thresh: 0.8           # IOU threshold for matching detections to tracks
+
+fuse_score:   true          # Fuse detection score into track confidence

@@ -1,0 +1,1430 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ArgusV — Live Surveillance Feed</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0a0c10;
+      --surface: #111318;
+      --surface2: #1a1d24;
+      --border: rgba(255, 255, 255, 0.07);
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --accent: #3b82f6;
+      --accent-glow: rgba(59, 130, 246, 0.25);
+      --red: #ef4444;
+      --red-glow: rgba(239, 68, 68, 0.2);
+      --orange: #f97316;
+      --orange-glow: rgba(249, 115, 22, 0.2);
+      --green: #22c55e;
+      --green-glow: rgba(34, 197, 94, 0.15);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Header ─────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 28px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(10, 12, 16, 0.9);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .logo .icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .ws-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--muted);
+    }
+
+    .ws-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: background 0.3s;
+    }
+
+    .ws-dot.live {
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+      animation: pulse 2s infinite;
+    }
+
+    .ws-dot.err {
+      background: var(--red);
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.4;
+      }
+    }
+
+    .stat-bar {
+      display: flex;
+      gap: 24px;
+    }
+
+    .stat {
+      text-align: center;
+    }
+
+    .stat .num {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat .lbl {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    /* ── Layout ─────────────────── */
+    main {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 0;
+      height: calc(100vh - 65px);
+    }
+
+    /* ── Alert Feed ─────────────── */
+    #feed-section {
+      padding: 24px;
+      overflow-y: auto;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge {
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--surface2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 2px 8px;
+    }
+
+    .clear-btn {
+      font-size: 12px;
+      color: var(--muted);
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .clear-btn:hover {
+      border-color: var(--accent);
+      color: var(--text);
+    }
+
+    #feed {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* ── Alert Card ─────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      transition: transform 0.2s, box-shadow 0.3s;
+      animation: slideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-12px) scale(0.98);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .card-accent {
+      height: 3px;
+    }
+
+    .card.HIGH .card-accent {
+      background: var(--red);
+      box-shadow: 0 0 12px var(--red-glow);
+    }
+
+    .card.MEDIUM .card-accent {
+      background: var(--orange);
+    }
+
+    .card.LOW .card-accent {
+      background: var(--green);
+    }
+
+    .card.PENDING .card-accent {
+      background: linear-gradient(90deg, var(--accent) 0%, transparent 100%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+    }
+
+    @keyframes shimmer {
+      0% {
+        background-position: -200% 0;
+      }
+
+      100% {
+        background-position: 200% 0;
+      }
+    }
+
+    .card-body {
+      padding: 16px;
+    }
+
+    .card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .card-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .pill {
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: 6px;
+      padding: 3px 8px;
+      border: 1px solid transparent;
+    }
+
+    .pill.HIGH {
+      background: rgba(239, 68, 68, 0.12);
+      color: #fca5a5;
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .pill.MEDIUM {
+      background: rgba(249, 115, 22, 0.12);
+      color: #fdba74;
+      border-color: rgba(249, 115, 22, 0.3);
+    }
+
+    .pill.LOW {
+      background: rgba(34, 197, 94, 0.12);
+      color: #86efac;
+      border-color: rgba(34, 197, 94, 0.3);
+    }
+
+    .pill.PENDING {
+      background: rgba(59, 130, 246, 0.12);
+      color: #93c5fd;
+      border-color: rgba(59, 130, 246, 0.3);
+    }
+
+    .pill.cam {
+      background: var(--surface2);
+      color: var(--muted);
+    }
+
+    .pill.zone {
+      background: var(--surface2);
+      color: var(--text);
+    }
+
+    .pill.cls {
+      background: var(--surface2);
+      color: var(--text);
+      font-family: 'JetBrains Mono';
+    }
+
+    .card-time {
+      font-size: 11px;
+      color: var(--muted);
+      font-family: 'JetBrains Mono';
+      white-space: nowrap;
+    }
+
+    .card-summary {
+      font-size: 13px;
+      color: #cbd5e1;
+      line-height: 1.5;
+      margin-bottom: 12px;
+      min-height: 20px;
+    }
+
+    /* ── Pipeline stages ─────────── */
+    .stages {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .stage {
+      height: 4px;
+      flex: 1;
+      border-radius: 4px;
+      background: var(--surface2);
+      transition: background 0.4s, box-shadow 0.4s;
+    }
+
+    .stage.done {
+      background: var(--accent);
+    }
+
+    .stage.active {
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent-glow);
+      animation: stagePulse 1s ease-in-out infinite;
+    }
+
+    .stage.err {
+      background: var(--red);
+    }
+
+    @keyframes stagePulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.5;
+      }
+    }
+
+    .stages-label {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 6px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* ── Right Panel ─────────────── */
+    #right-panel {
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-section {
+      padding: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .panel-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 14px;
+    }
+
+    /* Camera status cards */
+    .cam-card {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      border-radius: 8px;
+      background: var(--surface2);
+      margin-bottom: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .cam-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .cam-dot.online {
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green-glow);
+    }
+
+    .cam-dot.offline {
+      background: var(--muted);
+    }
+
+    .cam-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .cam-name {
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .cam-sub {
+      font-size: 11px;
+      color: var(--muted);
+      font-family: 'JetBrains Mono';
+    }
+
+    /* Event counter */
+    .counters {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .counter {
+      padding: 12px;
+      border-radius: 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      text-align: center;
+    }
+
+    .counter .c-num {
+      font-size: 24px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .counter .c-lbl {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .counter.red .c-num {
+      color: var(--red);
+    }
+
+    .counter.orange .c-num {
+      color: var(--orange);
+    }
+
+    .counter.blue .c-num {
+      color: var(--accent);
+    }
+
+    .counter.green .c-num {
+      color: var(--green);
+    }
+
+    /* Filters */
+    .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .filter-btn {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 5px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .filter-btn:hover,
+    .filter-btn.active {
+      border-color: var(--accent);
+      color: var(--text);
+      background: var(--accent-glow);
+    }
+
+    /* Empty state */
+    .empty {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--muted);
+    }
+
+    .empty .e-icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+      opacity: 0.4;
+    }
+
+    .empty .e-title {
+      font-size: 16px;
+      font-weight: 500;
+      margin-bottom: 6px;
+    }
+
+    .empty .e-sub {
+      font-size: 13px;
+      opacity: 0.7;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    /* ── View Toggle Tabs ────────── */
+    .view-tabs {
+      display: flex;
+      gap: 2px;
+      padding: 6px;
+      background: var(--surface);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+
+    .view-tab {
+      flex: 1;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 8px 16px;
+      border-radius: 7px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .view-tab:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .view-tab.active {
+      background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(139, 92, 246, 0.15));
+      color: #93c5fd;
+      box-shadow: 0 2px 12px rgba(59, 130, 246, 0.15);
+    }
+
+    /* ── Camera Video Grid ────────── */
+    #camera-grid-section {
+      padding: 24px;
+      overflow-y: auto;
+    }
+
+    .camera-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+    }
+
+    .camera-grid.single {
+      grid-template-columns: 1fr;
+      max-width: 900px;
+    }
+
+    .camera-tile {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      aspect-ratio: 16 / 9;
+      transition: transform 0.2s, box-shadow 0.3s, border-color 0.3s;
+    }
+
+    .camera-tile:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(59, 130, 246, 0.15);
+      border-color: rgba(59, 130, 246, 0.25);
+    }
+
+    .camera-tile video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      background: #000;
+    }
+
+    /* Camera overlay */
+    .cam-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 10px 12px;
+      background: linear-gradient(180deg, rgba(0, 0, 0, 0.7) 0%, transparent 100%);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .cam-overlay-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .cam-overlay-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+    }
+
+    .cam-live-badge {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: rgba(239, 68, 68, 0.85);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      text-transform: uppercase;
+    }
+
+    .cam-live-badge .live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #fff;
+      animation: pulse 1.5s infinite;
+    }
+
+    .cam-status-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 4px;
+      color: #fff;
+    }
+
+    .cam-status-badge.online {
+      background: rgba(34, 197, 94, 0.75);
+    }
+
+    .cam-status-badge.offline {
+      background: rgba(100, 116, 139, 0.75);
+    }
+
+    .cam-status-badge.connecting {
+      background: rgba(249, 115, 22, 0.75);
+    }
+
+    /* Camera overlay bottom */
+    .cam-overlay-bottom {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 10px 12px;
+      background: linear-gradient(0deg, rgba(0, 0, 0, 0.7) 0%, transparent 100%);
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      z-index: 2;
+      opacity: 0;
+      transition: opacity 0.25s;
+    }
+
+    .camera-tile:hover .cam-overlay-bottom {
+      opacity: 1;
+    }
+
+    .cam-fps {
+      font-size: 11px;
+      font-family: 'JetBrains Mono';
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .cam-controls {
+      display: flex;
+      gap: 6px;
+      pointer-events: all;
+    }
+
+    .cam-ctrl-btn {
+      width: 30px;
+      height: 30px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(8px);
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .cam-ctrl-btn:hover {
+      background: rgba(59, 130, 246, 0.5);
+      border-color: rgba(59, 130, 246, 0.5);
+      transform: scale(1.1);
+    }
+
+    /* Camera loading/error states */
+    .cam-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: linear-gradient(135deg, #0d0f14, #141720);
+      z-index: 1;
+    }
+
+    .cam-placeholder .cam-ph-icon {
+      font-size: 36px;
+      opacity: 0.3;
+    }
+
+    .cam-placeholder .cam-ph-text {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .cam-placeholder .cam-spinner {
+      width: 24px;
+      height: 24px;
+      border: 2px solid rgba(59, 130, 246, 0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    /* Fullscreen camera */
+    .camera-tile.fullscreen {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      border-radius: 0;
+      aspect-ratio: unset;
+      border: none;
+    }
+
+    .camera-tile.fullscreen .cam-overlay-bottom {
+      opacity: 1;
+    }
+
+    .camera-grid-empty {
+      text-align: center;
+      padding: 80px 20px;
+      color: var(--muted);
+    }
+
+    .camera-grid-empty .cge-icon {
+      font-size: 56px;
+      margin-bottom: 16px;
+      opacity: 0.3;
+    }
+
+    .camera-grid-empty .cge-title {
+      font-size: 16px;
+      font-weight: 500;
+      margin-bottom: 6px;
+      color: var(--text);
+    }
+
+    .camera-grid-empty .cge-sub {
+      font-size: 13px;
+      opacity: 0.7;
+    }
+  </style>
+</head>
+
+<body>
+
+  <header>
+    <div class="logo">
+      <div class="icon">🛡</div>
+      ArgusV
+    </div>
+
+    <div class="stat-bar">
+      <div class="stat">
+        <div class="num" id="total-count">0</div>
+        <div class="lbl">Total</div>
+      </div>
+      <div class="stat">
+        <div class="num" id="threat-count" style="color:var(--red)">0</div>
+        <div class="lbl">Threats</div>
+      </div>
+      <div class="stat">
+        <div class="num" id="cam-count" style="color:var(--accent)">0</div>
+        <div class="lbl">Cameras</div>
+      </div>
+    </div>
+
+    <div class="ws-status">
+      <div class="ws-dot" id="ws-dot"></div>
+      <span id="ws-label">Connecting…</span>
+    </div>
+  </header>
+
+  <nav
+    style="display:flex;gap:4px;padding:8px 28px;border-bottom:1px solid rgba(255,255,255,0.07);background:rgba(10,12,16,0.95)">
+    <style>
+      .nav-link {
+        font-size: 12px;
+        font-weight: 500;
+        padding: 6px 12px;
+        border-radius: 6px;
+        color: #64748b;
+        text-decoration: none;
+        transition: all 0.2s;
+      }
+
+      .nav-link:hover {
+        background: rgba(255, 255, 255, 0.06);
+        color: #e2e8f0;
+      }
+
+      .nav-link.active {
+        background: rgba(59, 130, 246, 0.15);
+        color: #3b82f6;
+      }
+    </style>
+    <a class="nav-link active" href="/">📡 Live Feed</a>
+    <a class="nav-link" href="/static/recordings.html">📹 Recordings</a>
+    <a class="nav-link" href="/static/incidents.html">🚨 Incidents</a>
+    <a class="nav-link" href="/static/zones.html">📐 Zones</a>
+  </nav>
+
+  <!-- ── View Toggle + Content ── -->
+  <div style="padding: 24px; overflow-y: auto;">
+    <!-- View Toggle Tabs -->
+    <div class="view-tabs">
+      <button class="view-tab active" id="tab-cameras" onclick="switchView('cameras')">
+        📹 Live Cameras
+      </button>
+      <button class="view-tab" id="tab-feed" onclick="switchView('feed')">
+        📡 Detection Feed
+        <span class="badge" id="feed-badge-tab" style="font-size:10px;padding:1px 6px">0</span>
+      </button>
+    </div>
+
+    <!-- ── Camera Grid Section ── -->
+    <section id="camera-grid-section">
+      <div class="camera-grid" id="camera-grid">
+        <div class="camera-grid-empty">
+          <div class="cge-icon">📹</div>
+          <div class="cge-title">Loading cameras…</div>
+          <div class="cge-sub">Connecting to camera streams via MediaMTX</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Alert Feed Section ── -->
+    <section id="feed-section" style="display:none;">
+      <div class="section-header">
+        <div class="section-title">
+          📡 Live Detection Feed
+          <span class="badge" id="feed-badge">0 events</span>
+        </div>
+        <button class="clear-btn" onclick="clearFeed()">Clear</button>
+      </div>
+
+      <div class="filters" id="filters" style="margin-bottom:16px">
+        <button class="filter-btn active" data-filter="ALL" onclick="setFilter('ALL',this)">All</button>
+        <button class="filter-btn" data-filter="HIGH" onclick="setFilter('HIGH',this)">🔴 High</button>
+        <button class="filter-btn" data-filter="MEDIUM" onclick="setFilter('MEDIUM',this)">🟠 Medium</button>
+        <button class="filter-btn" data-filter="LOW" onclick="setFilter('LOW',this)">🟡 Low</button>
+        <button class="filter-btn" data-filter="person" onclick="setFilter('person',this)">🚶 Person</button>
+        <button class="filter-btn" data-filter="car" onclick="setFilter('car',this)">🚗 Vehicle</button>
+      </div>
+
+      <div id="feed">
+        <div class="empty" id="empty-state">
+          <div class="e-icon">👁</div>
+          <div class="e-title">Watching for activity…</div>
+          <div class="e-sub">Detection events will appear here in real-time</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ── Right Panel ── -->
+  <aside id="right-panel">
+    <div class="panel-section">
+      <div class="panel-title">📷 Cameras</div>
+      <div id="cameras-list">
+        <div style="color:var(--muted);font-size:12px">Loading…</div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-title">📊 Session Stats</div>
+      <div class="counters">
+        <div class="counter red">
+          <div class="c-num" id="c-high">0</div>
+          <div class="c-lbl">HIGH</div>
+        </div>
+        <div class="counter orange">
+          <div class="c-num" id="c-med">0</div>
+          <div class="c-lbl">MEDIUM</div>
+        </div>
+        <div class="counter blue">
+          <div class="c-num" id="c-total">0</div>
+          <div class="c-lbl">Events</div>
+        </div>
+        <div class="counter green">
+          <div class="c-num" id="c-low">0</div>
+          <div class="c-lbl">LOW</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section" style="flex:1;overflow-y:auto">
+      <div class="panel-title">🕒 Recent Activity</div>
+      <div id="activity-log" style="font-size:12px;color:var(--muted);line-height:1.8;font-family:'JetBrains Mono'">
+        —
+      </div>
+    </div>
+  </aside>
+  </main>
+
+  <script>
+    // ── State ─────────────────────────────────────────────────────────────────
+    const events = new Map();   // event_id → card data
+    const counters = { HIGH: 0, MEDIUM: 0, LOW: 0, PENDING: 0 };
+    let total = 0;
+    let threats = 0;
+    let filter = 'ALL';
+    const STAGES = ['DETECTED', 'FRAMES_READY', 'VLM', 'DECISION', 'NOTIFIED'];
+
+    // ── WebSocket ─────────────────────────────────────────────────────────────
+    const WS_URL = `ws://${location.host}/ws/alerts`;
+    let ws, reconnectDelay = 1000;
+
+    function connect() {
+      ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        setWsStatus('live');
+        reconnectDelay = 1000;
+        log('Connected to ArgusV');
+      };
+
+      ws.onmessage = ({ data }) => {
+        try { handleMessage(JSON.parse(data)); } catch { }
+      };
+
+      ws.onclose = () => {
+        setWsStatus('err');
+        log('Disconnected — reconnecting…');
+        setTimeout(connect, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 1.5, 10000);
+      };
+    }
+
+    function setWsStatus(state) {
+      const dot = document.getElementById('ws-dot');
+      const label = document.getElementById('ws-label');
+      dot.className = `ws-dot ${state}`;
+      label.textContent = state === 'live' ? 'Live' : 'Reconnecting…';
+    }
+
+    // ── Message handler ───────────────────────────────────────────────────────
+    function handleMessage(msg) {
+      if (msg.type === 'fast_alert') {
+        createCard(msg);
+      } else if (msg.type === 'vlm_update') {
+        updateCard(msg);
+      }
+    }
+
+    function createCard(msg) {
+      const id = msg.event_id;
+      if (!id) return;
+      events.set(id, { ...msg, stage: 1 });
+      total++;
+      counters['PENDING'] = (counters['PENDING'] || 0) + 1;
+      updateHeaderCounts();
+
+      const card = buildCard(msg);
+      const feed = document.getElementById('feed');
+      document.getElementById('empty-state')?.remove();
+      feed.insertBefore(card, feed.firstChild);
+
+      // Trim to 50 cards
+      const cards = feed.querySelectorAll('.card');
+      if (cards.length > 50) cards[cards.length - 1].remove();
+
+      updateBadge();
+      updateCounters();
+      applyFilter();
+
+      log(`${msg.object_class} in ${msg.zone_name || 'scene'} [${msg.camera_id}]`);
+    }
+
+    function updateCard(msg) {
+      const id = msg.event_id;
+      if (!id) return;
+      const existing = events.get(id) || {};
+      const data = { ...existing, ...msg };
+      events.set(id, data);
+
+      const card = document.getElementById(`card-${id}`);
+      if (!card) return;
+
+      const tl = msg.threat_level || 'LOW';
+      // Update threat level class
+      card.className = `card ${tl}`;
+      card.querySelector('.card-accent').className = 'card-accent';
+
+      // Threat pill
+      const threatPill = card.querySelector('.threat-pill');
+      if (threatPill) {
+        threatPill.className = `pill ${tl} threat-pill`;
+        threatPill.textContent = tl;
+      }
+
+      // Summary
+      if (msg.summary) {
+        const sumEl = card.querySelector('.card-summary');
+        if (sumEl) {
+          sumEl.textContent = msg.summary;
+          sumEl.style.color = '#e2e8f0';
+        }
+      }
+
+      // Mark stages done
+      const stageEls = card.querySelectorAll('.stage');
+      stageEls.forEach((el, i) => {
+        if (i < 3) el.classList.add('done');   // DETECTED, FRAMES, VLM done
+        if (i === 3) el.classList.add('done');
+      });
+
+      // Update threat counter
+      if (!existing.threat_level || existing.threat_level === 'PENDING') {
+        counters[tl] = (counters[tl] || 0) + 1;
+        if (msg.is_threat) threats++;
+        updateHeaderCounts();
+        updateCounters();
+      }
+    }
+
+    // ── Card builder ──────────────────────────────────────────────────────────
+    function buildCard(msg) {
+      const id = msg.event_id || 'x';
+      const tl = msg.threat_level || 'PENDING';
+      const ts = new Date((msg.timestamp || Date.now() / 1000) * 1000);
+      const timeStr = ts.toLocaleTimeString();
+
+      const card = document.createElement('div');
+      card.className = `card ${tl}`;
+      card.id = `card-${id}`;
+      card.dataset.filter = `${tl} ${msg.object_class || ''}`;
+
+      card.innerHTML = `
+      <div class="card-accent"></div>
+      <div class="card-body">
+        <div class="card-top">
+          <div class="card-meta">
+            <span class="pill ${tl} threat-pill">${tl}</span>
+            <span class="pill cls">${msg.object_class || '?'}</span>
+            ${msg.zone_name ? `<span class="pill zone">📍 ${msg.zone_name}</span>` : ''}
+            <span class="pill cam">🎥 ${msg.camera_id || '?'}</span>
+            ${msg.confidence ? `<span class="pill cam">${Math.round(msg.confidence * 100)}%</span>` : ''}
+          </div>
+          <div class="card-time">${timeStr}</div>
+        </div>
+        <div class="card-summary">${msg.status === 'analyzing'
+          ? '<span style="color:var(--muted);font-style:italic">⚡ AI analysis in progress…</span>'
+          : (msg.summary || '')
+        }</div>
+        <div class="stages">
+          <div class="stage done" title="Detected"></div>
+          <div class="stage ${msg.status === 'analyzing' ? 'active' : ''}" title="Frames"></div>
+          <div class="stage ${msg.status === 'analyzing' ? '' : 'done'}" title="VLM"></div>
+          <div class="stage" title="Decision"></div>
+          <div class="stage" title="Notified"></div>
+        </div>
+        <div class="stages-label">
+          <span>Detected</span><span>VLM</span><span>Done</span>
+        </div>
+      </div>
+    `;
+      return card;
+    }
+
+    // ── Filter ────────────────────────────────────────────────────────────────
+    function setFilter(f, btn) {
+      filter = f;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      applyFilter();
+    }
+
+    function applyFilter() {
+      document.querySelectorAll('#feed .card').forEach(card => {
+        const data = card.dataset.filter || '';
+        const show = filter === 'ALL' || data.includes(filter);
+        card.style.display = show ? '' : 'none';
+      });
+    }
+
+    // ── Utilities ─────────────────────────────────────────────────────────────
+    function updateHeaderCounts() {
+      document.getElementById('total-count').textContent = total;
+      document.getElementById('threat-count').textContent = threats;
+    }
+
+    function updateCounters() {
+      document.getElementById('c-high').textContent = counters['HIGH'] || 0;
+      document.getElementById('c-med').textContent = counters['MEDIUM'] || 0;
+      document.getElementById('c-low').textContent = counters['LOW'] || 0;
+      document.getElementById('c-total').textContent = total;
+    }
+
+    function updateBadge() {
+      document.getElementById('feed-badge').textContent = `${total} event${total !== 1 ? 's' : ''}`;
+      const tabBadge = document.getElementById('feed-badge-tab');
+      if (tabBadge) tabBadge.textContent = total;
+    }
+
+    function clearFeed() {
+      document.getElementById('feed').innerHTML =
+        `<div class="empty" id="empty-state">
+         <div class="e-icon">👁</div>
+         <div class="e-title">Watching for activity…</div>
+         <div class="e-sub">Detection events will appear here in real-time</div>
+       </div>`;
+      events.clear();
+      Object.keys(counters).forEach(k => counters[k] = 0);
+      total = 0; threats = 0;
+      updateHeaderCounts(); updateCounters(); updateBadge();
+    }
+
+    const activityLog = [];
+    function log(msg) {
+      activityLog.unshift(`${new Date().toLocaleTimeString()} ${msg}`);
+      if (activityLog.length > 8) activityLog.pop();
+      document.getElementById('activity-log').textContent = activityLog.join('\n');
+    }
+
+    // ── Camera status (sidebar) ───────────────────────────────────────────────
+    let cameraList = [];
+    async function loadCameras() {
+      try {
+        const res = await fetch('/api/cameras');
+        const cams = await res.json();
+        cameraList = cams;
+        document.getElementById('cam-count').textContent = cams.length;
+        document.getElementById('cameras-list').innerHTML = cams.map(c => `
+        <div class="cam-card">
+          <div class="cam-dot ${c.status}"></div>
+          <div class="cam-info">
+            <div class="cam-name">${c.name || c.camera_id}</div>
+            <div class="cam-sub">${c.status} · ${c.fps || '?'} fps</div>
+          </div>
+        </div>
+      `).join('') || '<div style="color:var(--muted);font-size:12px">No cameras registered</div>';
+      } catch {
+        document.getElementById('cameras-list').innerHTML =
+          '<div style="color:var(--muted);font-size:12px">Failed to load cameras</div>';
+      }
+    }
+
+    // ── View Toggle ───────────────────────────────────────────────────────────
+    let currentView = 'cameras';
+    function switchView(view) {
+      currentView = view;
+      document.getElementById('tab-cameras').classList.toggle('active', view === 'cameras');
+      document.getElementById('tab-feed').classList.toggle('active', view === 'feed');
+      document.getElementById('camera-grid-section').style.display = view === 'cameras' ? '' : 'none';
+      document.getElementById('feed-section').style.display = view === 'feed' ? '' : 'none';
+    }
+
+    // ── Live Camera Grid (HLS.js) ────────────────────────────────────────────
+    const hlsInstances = new Map();
+    // MediaMTX HLS base URL — same host, port 8888
+    const MEDIAMTX_HLS_BASE = `${location.protocol}//${location.hostname}:8888`;
+
+    function buildCameraGrid(cameras) {
+      const grid = document.getElementById('camera-grid');
+      if (!cameras || cameras.length === 0) {
+        grid.innerHTML = `
+          <div class="camera-grid-empty">
+            <div class="cge-icon">📹</div>
+            <div class="cge-title">No cameras configured</div>
+            <div class="cge-sub">Add cameras via the API to see live feeds here</div>
+          </div>`;
+        return;
+      }
+
+      // Adjust grid class for single camera
+      grid.classList.toggle('single', cameras.length === 1);
+
+      grid.innerHTML = cameras.map(cam => {
+        const camId = cam.camera_id || cam.name;
+        const camName = cam.name || cam.camera_id;
+        return `
+        <div class="camera-tile" id="tile-${camId}" data-cam-id="${camId}">
+          <div class="cam-placeholder" id="ph-${camId}">
+            <div class="cam-spinner"></div>
+            <div class="cam-ph-text">Connecting to ${camName}…</div>
+          </div>
+          <video id="video-${camId}" muted autoplay playsinline></video>
+          <div class="cam-overlay">
+            <div class="cam-overlay-info">
+              <div class="cam-live-badge" id="live-badge-${camId}" style="opacity:0">
+                <div class="live-dot"></div>
+                LIVE
+              </div>
+              <div class="cam-overlay-name">${camName}</div>
+            </div>
+            <div class="cam-status-badge connecting" id="status-badge-${camId}">Connecting</div>
+          </div>
+          <div class="cam-overlay-bottom">
+            <div class="cam-fps" id="fps-${camId}">-- fps</div>
+            <div class="cam-controls">
+              <button class="cam-ctrl-btn" onclick="toggleFullscreen('${camId}')" title="Fullscreen">⛶</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+
+      // Attach HLS streams
+      cameras.forEach(cam => {
+        const camId = cam.camera_id || cam.name;
+        attachHlsStream(camId);
+      });
+    }
+
+    function attachHlsStream(camId) {
+      const videoEl = document.getElementById(`video-${camId}`);
+      const placeholder = document.getElementById(`ph-${camId}`);
+      const liveBadge = document.getElementById(`live-badge-${camId}`);
+      const statusBadge = document.getElementById(`status-badge-${camId}`);
+      if (!videoEl) return;
+
+      // HLS URL from MediaMTX: http://host:8888/<camera-id>/index.m3u8
+      const hlsUrl = `${MEDIAMTX_HLS_BASE}/${camId}/index.m3u8`;
+
+      if (Hls.isSupported()) {
+        // Clean up previous instance
+        if (hlsInstances.has(camId)) {
+          hlsInstances.get(camId).destroy();
+        }
+
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true,
+          liveSyncDurationCount: 2,
+          liveMaxLatencyDurationCount: 5,
+          liveDurationInfinity: true,
+          manifestLoadingTimeOut: 10000,
+          manifestLoadingMaxRetry: 6,
+          manifestLoadingRetryDelay: 2000,
+        });
+
+        hlsInstances.set(camId, hls);
+
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(videoEl);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          videoEl.play().catch(() => { });
+          // Show video, hide placeholder
+          if (placeholder) placeholder.style.display = 'none';
+          if (liveBadge) liveBadge.style.opacity = '1';
+          if (statusBadge) {
+            statusBadge.textContent = 'Live';
+            statusBadge.className = 'cam-status-badge online';
+          }
+        });
+
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          if (data.fatal) {
+            if (placeholder) {
+              placeholder.innerHTML = `
+                <div class="cam-ph-icon">📡</div>
+                <div class="cam-ph-text">Stream unavailable</div>
+                <div class="cam-ph-text" style="font-size:11px;opacity:0.6">Retrying in 5s…</div>`;
+              placeholder.style.display = 'flex';
+            }
+            if (liveBadge) liveBadge.style.opacity = '0';
+            if (statusBadge) {
+              statusBadge.textContent = 'Offline';
+              statusBadge.className = 'cam-status-badge offline';
+            }
+            // Auto-retry after delay
+            setTimeout(() => {
+              if (placeholder) {
+                placeholder.innerHTML = `
+                  <div class="cam-spinner"></div>
+                  <div class="cam-ph-text">Reconnecting…</div>`;
+                placeholder.style.display = 'flex';
+              }
+              if (statusBadge) {
+                statusBadge.textContent = 'Connecting';
+                statusBadge.className = 'cam-status-badge connecting';
+              }
+              hls.destroy();
+              attachHlsStream(camId);
+            }, 5000);
+          }
+        });
+
+      } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari native HLS
+        videoEl.src = hlsUrl;
+        videoEl.addEventListener('loadedmetadata', () => {
+          videoEl.play().catch(() => { });
+          if (placeholder) placeholder.style.display = 'none';
+          if (liveBadge) liveBadge.style.opacity = '1';
+          if (statusBadge) {
+            statusBadge.textContent = 'Live';
+            statusBadge.className = 'cam-status-badge online';
+          }
+        });
+      } else {
+        if (placeholder) {
+          placeholder.innerHTML = `
+            <div class="cam-ph-icon">⚠️</div>
+            <div class="cam-ph-text">HLS not supported in this browser</div>`;
+        }
+      }
+    }
+
+    function toggleFullscreen(camId) {
+      const tile = document.getElementById(`tile-${camId}`);
+      if (!tile) return;
+      tile.classList.toggle('fullscreen');
+      // If entering fullscreen, add ESC listener
+      if (tile.classList.contains('fullscreen')) {
+        const handler = (e) => {
+          if (e.key === 'Escape') {
+            tile.classList.remove('fullscreen');
+            document.removeEventListener('keydown', handler);
+          }
+        };
+        document.addEventListener('keydown', handler);
+      }
+    }
+
+    // ── Boot ──────────────────────────────────────────────────────────────────
+    connect();
+    loadCameras().then(() => buildCameraGrid(cameraList));
+    setInterval(loadCameras, 30000);
+  </script>
+</body>
+
+</html>

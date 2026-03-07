@@ -1,0 +1,111 @@
+# ArgusV Monolith — 4 containers (was 13)
+# Drop: Kafka, Zookeeper, MinIO, Qdrant, 7 Python services
+# Keep: ArgusV, Postgres, Redis, MediaMTX
+
+services:
+
+  argusv:
+    build:
+      context: .. # services/ — so edge-gateway/src is reachable
+      dockerfile: argusv/Dockerfile
+      network: host # use WSL host DNS during apt-get (fixes WSL2 DNS bug)
+    container_name: argusv
+    ports:
+      - "8000:8000" # Dashboard at http://localhost:8000
+    environment:
+      # ── Infrastructure ──────────────────────
+      POSTGRES_URL: postgresql://argus:password@postgres:5432/argus_db
+      REDIS_URL: redis://redis:6379/0
+
+      # ── Camera (single cam, override with CAMERAS for multi) ───
+      CAMERA_ID: "cam-01"
+      RTSP_URL: "rtsp://mediamtx:8554/cam-01"
+
+      # ── Detection ────────────────────────────
+      DETECT_FPS: "5"
+      YOLO_MODEL: "yolov8n.pt"
+      CONF_THRESHOLD: "0.45"
+      USE_MOTION_GATE: "true"
+      MOTION_THRESHOLD: "0.003"
+      USE_TRACKER: "true"
+      LOITER_THRESHOLD_SEC: "30"
+      EMBED_FRAME: "true"
+
+      # ── Recording ────────────────────────────
+      RECORDINGS_ENABLED: "false" # enable when MinIO or local disk ready
+      SEGMENT_TMP_DIR: "/tmp/argus_segments"
+
+      # ── VLM ──────────────────────────────────
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      USE_TIERED_VLM: "true"
+      VLM_MAX_WORKERS: "2"
+
+      # ── Notifications ─────────────────────────
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_CHANNEL_ID: "#argus-alerts"
+
+      LOG_LEVEL: "INFO"
+
+    volumes:
+      - /tmp/argus_segments:/tmp/argus_segments
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: argus-postgres
+    environment:
+      POSTGRES_USER: argus
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: argus_db
+    ports:
+      - "5433:5432" # host:container — avoids conflict with existing postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../../configs/db:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U argus" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: argus-redis
+    ports:
+      - "6380:6379" # host:container — avoids conflict with existing redis
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Live stream re-broadcaster (RTSP → HLS for dashboard)
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: argus-mediamtx
+    ports:
+      - "8554:8554" # RTSP input (your camera points here)
+      - "8888:8888" # HLS output  → http://localhost:8888/cam-01/index.m3u8
+      - "8889:8889" # WebRTC output
+    environment:
+      MTX_PROTOCOLS: tcp
+      MTX_HLSADDRESS: :8888
+      MTX_RTSPADDRESS: :8554
+      MTX_WEBRTCADDRESS: :8889
+      MTX_HLSALWAYSREMUX: "yes"
+      MTX_HLSSEGMENTCOUNT: "3"
+      MTX_HLSSEGMENTDURATION: 2s
+      MTX_HLSALLOWORIGIN: "*"
+      MTX_LOGLEVEL: info
+      MTX_API: "yes"
+
+volumes:
+  postgres_data:
+  redis_data:
