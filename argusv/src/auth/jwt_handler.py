@@ -15,6 +15,7 @@ BRAYAN NOTE: Auth is fully stubbed — nothing works yet.
 # TODO AUTH-06: API key auth (Bearer token)
 # TODO AUTH-07: Refresh tokens
 
+import hmac
 import os
 from datetime import datetime, timedelta
 from typing import Optional
@@ -25,6 +26,10 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 SECRET_KEY   = os.getenv("JWT_SECRET", "change-me-in-production")
 ALGORITHM    = "HS256"
 TOKEN_EXPIRE = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
+
+# Comma-separated list of valid API keys (Bearer alternative to JWT)
+_raw_keys = os.getenv("API_KEYS", "")
+API_KEYS: set[str] = {k.strip() for k in _raw_keys.split(",") if k.strip()}
 
 security = HTTPBearer(auto_error=False)
 
@@ -46,10 +51,24 @@ def verify_token(token: str) -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
 
+def _is_valid_api_key(token: str) -> bool:
+    """Constant-time check against every configured API key."""
+    return any(hmac.compare_digest(token, k) for k in API_KEYS)
+
+
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ):
     """FastAPI dependency — use on protected routes."""
-    # TODO AUTH-02: verify token, return user
-    # For now: allow all (no auth)
-    return {"user": "anonymous", "role": "ADMIN"}
+    if credentials is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+    token = credentials.credentials
+
+    # Try API key first (cheaper than JWT decode)
+    if API_KEYS and _is_valid_api_key(token):
+        return {"user": "api-key", "role": "ADMIN"}
+
+    # Fall back to JWT
+    payload = verify_token(token)
+    return {"user": payload.get("sub", "unknown"), "role": payload.get("role", "USER")}
