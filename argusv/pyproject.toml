@@ -27,6 +27,9 @@ dependencies = [
     # Utilities
     "python-dotenv",
     "pydantic",
+
+    # Auth
+    "PyJWT",
 ]
 
 [tool.pytest.ini_options]
