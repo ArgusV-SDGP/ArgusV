@@ -16,8 +16,12 @@ from typing import Optional
 
 import config as cfg
 from bus import bus
+from output.birdseye import BirdsEyeRenderer
 
 logger = logging.getLogger("pipeline-worker")
+
+# Singleton birdseye renderer — initialised lazily in decision engine
+birdseye_renderer: Optional[BirdsEyeRenderer] = None
 
 
 # ── Stage 1: VLM Request Builder ─────────────────────────────────────────────
@@ -201,7 +205,19 @@ async def _call_openai(event: dict) -> dict:
 # (Replaces decision-engine Kafka consumer)
 
 async def decision_engine_worker():
-    logger.info("[Pipeline] Decision engine worker started")
+    global birdseye_renderer
+    # Initialise birdseye renderer with configured cameras
+    try:
+        from db.connection import SessionLocal
+        from db.models import Camera
+        db = SessionLocal()
+        cams = db.query(Camera).all()
+        cam_list = [{"camera_id": c.camera_id, "name": c.name} for c in cams]
+        db.close()
+    except Exception:
+        cam_list = []
+    birdseye_renderer = BirdsEyeRenderer(cam_list)
+    logger.info("[Pipeline] Decision engine worker started (birdseye: %d cameras)", len(cam_list))
     while True:
         event: dict = await bus.vlm_results.get()
         try:
@@ -270,6 +286,27 @@ async def _process_decision(event: dict):
             "threat_level": threat_level,
             "summary":      vlm.get("summary"),
         })
+
+    # Update birdseye renderer with object position
+    track_id = event.get("track_id")
+    event_type = event.get("event_type", "")
+    if birdseye_renderer and track_id is not None:
+        if event_type == "END":
+            birdseye_renderer.remove_object(track_id)
+        else:
+            bbox = event.get("bbox", {})
+            # Compute normalised centre from bbox
+            x1, y1 = bbox.get("x1", 0), bbox.get("y1", 0)
+            x2, y2 = bbox.get("x2", 1), bbox.get("y2", 1)
+            norm_x = ((x1 + x2) / 2) / 1920  # assume 1920 width
+            norm_y = ((y1 + y2) / 2) / 1080  # assume 1080 height
+            birdseye_renderer.update_object(
+                track_id,
+                max(0.0, min(1.0, norm_x)),
+                max(0.0, min(1.0, norm_y)),
+                event.get("object_class", "unknown"),
+                threat_level,
+            )
 
 
 # ── Stage 4: Notification + Actuation ────────────────────────────────────────
