@@ -79,10 +79,21 @@
         <h1>📹 Recordings</h1>
         <p>NVR replay page — coming soon</p>
         <div class="task">Tasks: DNVR-01 through DNVR-08</div>
+        <div style="margin-top:8px;font-size:12px;color:#94a3b8;" id="auth-user"></div>
         <br />
         <a href="/">← Back to Live Feed</a>
+        <button id="logoutBtn" style="margin-left:8px;border:none;background:#1f2937;color:#e2e8f0;border-radius:6px;padding:6px 10px;cursor:pointer;">Logout</button>
     </div>
     <!-- TODO DNVR-01: implement full recordings UI here -->
+    <script src="/static/auth.js"></script>
+    <script>
+        (async () => {
+            const me = await window.ArgusAuth.requireAuth();
+            if (!me) return;
+            document.getElementById("auth-user").textContent = `Logged in as ${me.username} (${me.role})`;
+            document.getElementById("logoutBtn").addEventListener("click", () => window.ArgusAuth.logout());
+        })();
+    </script>
 </body>
 
 </html>

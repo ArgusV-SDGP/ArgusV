@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import config as cfg
+from auth.jwt_handler import ROLE_ADMIN, ROLE_SERVICE, require_roles
 from db.connection import get_db
 from db.models import NotificationRule, RagConfig
 
@@ -83,7 +84,10 @@ def _publish_config_update(update_type: str) -> None:
 
 
 @router.get("/api/config/runtime")
-def get_runtime_config(db: Session = Depends(get_db)):
+def get_runtime_config(
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_SERVICE)),
+):
     current = _runtime_defaults()
     rows = db.query(RagConfig).filter(RagConfig.group == "runtime").all()
     for row in rows:
@@ -95,7 +99,11 @@ def get_runtime_config(db: Session = Depends(get_db)):
 
 
 @router.put("/api/config/runtime")
-def update_runtime_config(payload: RuntimeConfigPatch, db: Session = Depends(get_db)):
+def update_runtime_config(
+    payload: RuntimeConfigPatch,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_SERVICE)),
+):
     updates = payload.dict(exclude_unset=True)
     for key, value in updates.items():
         row = db.query(RagConfig).filter(RagConfig.group == "runtime", RagConfig.key == key).first()
@@ -110,13 +118,18 @@ def update_runtime_config(payload: RuntimeConfigPatch, db: Session = Depends(get
 
 
 @router.post("/api/config/apply")
-def apply_config():
+def apply_config(
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_SERVICE)),
+):
     _publish_config_update("CONFIG_APPLY")
     return {"status": "ok", "message": "config apply signal published"}
 
 
 @router.get("/api/notification-rules")
-def list_notification_rules(db: Session = Depends(get_db)):
+def list_notification_rules(
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_SERVICE)),
+):
     rows = db.query(NotificationRule).all()
     return [
         {
@@ -131,7 +144,11 @@ def list_notification_rules(db: Session = Depends(get_db)):
 
 
 @router.post("/api/notification-rules", status_code=201)
-def create_notification_rule(payload: NotificationRuleCreate, db: Session = Depends(get_db)):
+def create_notification_rule(
+    payload: NotificationRuleCreate,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_SERVICE)),
+):
     row = NotificationRule(
         zone_id=payload.zone_id,
         severity=payload.severity.upper(),
@@ -152,7 +169,12 @@ def create_notification_rule(payload: NotificationRuleCreate, db: Session = Depe
 
 
 @router.put("/api/notification-rules/{rule_id}")
-def update_notification_rule(rule_id: str, payload: NotificationRuleCreate, db: Session = Depends(get_db)):
+def update_notification_rule(
+    rule_id: str,
+    payload: NotificationRuleCreate,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_SERVICE)),
+):
     import uuid
 
     try:
@@ -180,7 +202,11 @@ def update_notification_rule(rule_id: str, payload: NotificationRuleCreate, db: 
 
 
 @router.delete("/api/notification-rules/{rule_id}", status_code=204)
-def delete_notification_rule(rule_id: str, db: Session = Depends(get_db)):
+def delete_notification_rule(
+    rule_id: str,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_SERVICE)),
+):
     import uuid
 
     try:
@@ -198,7 +224,11 @@ def delete_notification_rule(rule_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/api/rag-config")
-def list_rag_config(db: Session = Depends(get_db), group: str = "rag"):
+def list_rag_config(
+    db: Session = Depends(get_db),
+    group: str = "rag",
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_SERVICE)),
+):
     rows = db.query(RagConfig).filter(RagConfig.group == group).all()
     out = []
     for row in rows:
@@ -211,7 +241,12 @@ def list_rag_config(db: Session = Depends(get_db), group: str = "rag"):
 
 
 @router.put("/api/rag-config/{key}")
-def upsert_rag_config(key: str, payload: RagConfigUpsert, db: Session = Depends(get_db)):
+def upsert_rag_config(
+    key: str,
+    payload: RagConfigUpsert,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_SERVICE)),
+):
     row = db.query(RagConfig).filter(RagConfig.key == key, RagConfig.group == payload.group).first()
     if not row:
         row = RagConfig(key=key, group=payload.group, value=json.dumps(payload.value))
@@ -224,7 +259,12 @@ def upsert_rag_config(key: str, payload: RagConfigUpsert, db: Session = Depends(
 
 
 @router.delete("/api/rag-config/{key}", status_code=204)
-def delete_rag_config(key: str, group: str = "rag", db: Session = Depends(get_db)):
+def delete_rag_config(
+    key: str,
+    group: str = "rag",
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_SERVICE)),
+):
     row = db.query(RagConfig).filter(RagConfig.key == key, RagConfig.group == group).first()
     if not row:
         raise HTTPException(404, "RagConfig key not found")
