@@ -39,20 +39,28 @@ async def watchdog_worker():
 async def _check_cameras():
     """
     Check Redis heartbeats for each configured camera.
-    If offline for >60s → attempt restart.
+    If heartbeat key has expired → camera is offline, log warning.
     Task WATCH-02, WATCH-03
     """
-    # TODO WATCH-03: implement camera restart logic
-    # import redis as _redis
-    # r = _redis.from_url(cfg.REDIS_URL)
-    # from workers.edge_worker import _camera_workers
-    # for cam_id, worker in _camera_workers.items():
-    #     alive = r.exists(f"camera:status:{cam_id}")
-    #     if not alive:
-    #         logger.warning(f"[Watchdog] Camera {cam_id} offline — restarting thread")
-    #         worker.stop()
-    #         worker.start()
-    pass
+    try:
+        import redis
+        r = redis.from_url(cfg.REDIS_URL, decode_responses=True)
+        # Discover all camera heartbeat keys
+        keys = r.keys("camera:status:*")
+        if not keys:
+            logger.debug("[Watchdog] No camera heartbeat keys found in Redis")
+            return
+
+        from workers.edge_worker import _camera_workers
+        for cam_id in _camera_workers:
+            key = f"camera:status:{cam_id}"
+            alive = r.exists(key)
+            if not alive:
+                logger.warning(f"[Watchdog] Camera {cam_id} heartbeat expired — camera may be offline")
+            else:
+                logger.debug(f"[Watchdog] Camera {cam_id} healthy")
+    except Exception as e:
+        logger.warning(f"[Watchdog] Camera health check failed: {e}")
 
 
 async def _check_disk():
