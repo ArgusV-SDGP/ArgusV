@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 
 from bus import bus
 from api.ws_handler import manager
-from stats.emitter import get_stats
+from stats.emitter import get_stats, set_bus
 from api.routes.cameras import router as cameras_router
 from api.routes.zones import router as zones_router
 from api.routes.incidents import router as incidents_router
@@ -48,6 +48,9 @@ async def lifespan(app: FastAPI):
     from db.connection import create_tables
     create_tables()
     logger.info("✅ Database schema ready")
+
+    # Wire bus into stats emitter for queue depth reporting
+    set_bus(bus)
 
     # Camera threads (sync → async bridge)
     start_cameras(bus.raw_detections, loop)
@@ -144,6 +147,12 @@ async def prometheus_metrics():
         f'argusv_cpu_percent {s["cpu_pct"]}',
         f'argusv_memory_rss_mb {s["rss_mb"]}',
     ]
+    # Per-camera detection counts
+    for cam_id, count in s.get("detections_per_cam", {}).items():
+        lines.append(f'argusv_detections_by_camera{{camera="{cam_id}"}} {count}')
+    # Queue depths
+    for queue_name, depth in s.get("queue_depths", {}).items():
+        lines.append(f'argusv_queue_depth{{queue="{queue_name}"}} {depth}')
     return "\n".join(lines) + "\n"
 
 
