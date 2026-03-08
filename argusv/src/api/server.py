@@ -15,7 +15,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from bus import bus
@@ -32,6 +32,7 @@ from workers.pipeline_worker import (
     vlm_inference_worker,
     decision_engine_worker,
     notification_worker,
+    birdseye_renderer,
 )
 
 logger = logging.getLogger("api.server")
@@ -133,6 +134,16 @@ _START_TIME = time.time()
 @app.get("/api/stats")
 async def stats():
     return get_stats()
+
+
+@app.get("/api/birdseye")
+async def birdseye_snapshot():
+    """Return current birds-eye JPEG frame."""
+    from workers import pipeline_worker
+    renderer = pipeline_worker.birdseye_renderer
+    if renderer is None:
+        return Response(content=b"", media_type="image/jpeg", status_code=503)
+    return Response(content=renderer.render(), media_type="image/jpeg")
 
 
 @app.get("/metrics", response_class=PlainTextResponse)
