@@ -15,7 +15,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from bus import bus
@@ -130,6 +130,21 @@ _START_TIME = time.time()
 @app.get("/api/stats")
 async def stats():
     return get_stats()
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+async def prometheus_metrics():
+    s = get_stats()
+    lines = [
+        f'argusv_detections_total {s["detections_total"]}',
+        f'argusv_vlm_calls_total {s["vlm_calls"]}',
+        f'argusv_vlm_latency_avg_ms {s["vlm_latency_avg_ms"]:.1f}',
+        f'argusv_alerts_sent_total {s["alerts_sent"]}',
+        f'argusv_uptime_seconds {s["uptime_sec"]:.0f}',
+        f'argusv_cpu_percent {s["cpu_pct"]}',
+        f'argusv_memory_rss_mb {s["rss_mb"]}',
+    ]
+    return "\n".join(lines) + "\n"
 
 
 # ── REST: Recordings + Incidents (from replay_api.py logic) ──────────────────
