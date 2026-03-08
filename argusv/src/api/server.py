@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 
 from bus import bus
 from api.ws_handler import manager
+from stats.emitter import get_stats
 from api.routes.cameras import router as cameras_router
 from api.routes.zones import router as zones_router
 from api.routes.incidents import router as incidents_router
@@ -126,6 +127,11 @@ async def health():
     }
 
 _START_TIME = time.time()
+
+
+@app.get("/api/stats")
+async def stats():
+    return get_stats()
 
 
 # ── REST: Recordings + Incidents (from replay_api.py logic) ──────────────────
