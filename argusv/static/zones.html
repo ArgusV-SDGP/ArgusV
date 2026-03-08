@@ -180,7 +180,11 @@
                     <h1>📐 Draw Zone Polygon</h1>
                     <p>Click to add points (normalized to frame). Minimum 3 points.</p>
                 </div>
-                <a href="/">← Back to Live Feed</a>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <span id="auth-user" style="font-size:12px; color:#94a3b8;"></span>
+                    <button id="logoutBtn" type="button">Logout</button>
+                    <a href="/">← Back to Live Feed</a>
+                </div>
             </div>
 
             <canvas id="zoneCanvas" width="960" height="540"></canvas>
@@ -233,16 +237,22 @@
         </section>
     </div>
 
-    <script>
+  <script src="/static/auth.js"></script>
+  <script>
         const canvas = document.getElementById("zoneCanvas");
         const ctx = canvas.getContext("2d");
         const points = [];
         const statusEl = document.getElementById("formStatus");
         const listEl = document.getElementById("zonesList");
+        const userEl = document.getElementById("auth-user");
 
         function setStatus(text, type = "") {
             statusEl.textContent = text;
             statusEl.className = `status ${type}`;
+        }
+
+        function authHeaders() {
+            return window.ArgusAuth.authHeaders();
         }
 
         function toNorm(x, y) {
@@ -310,7 +320,7 @@
         async function loadZones() {
             listEl.innerHTML = `<div class="zone-item">Loading zones...</div>`;
             try {
-                const response = await fetch("/api/zones");
+                const response = await window.ArgusAuth.authFetch("/api/zones");
                 if (!response.ok) {
                     throw new Error(`Failed to load zones (${response.status})`);
                 }
@@ -332,6 +342,7 @@
         }
 
         document.getElementById("refreshBtn").addEventListener("click", loadZones);
+        document.getElementById("logoutBtn").addEventListener("click", () => window.ArgusAuth.logout());
 
         document.getElementById("zoneForm").addEventListener("submit", async (event) => {
             event.preventDefault();
@@ -356,7 +367,7 @@
             try {
                 const response = await fetch("/api/zones", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: { ...authHeaders(), "Content-Type": "application/json" },
                     body: JSON.stringify(payload),
                 });
                 if (!response.ok) {
@@ -374,8 +385,15 @@
             }
         });
 
-        draw();
-        loadZones();
+        async function boot() {
+            const me = await window.ArgusAuth.requireAuth();
+            if (!me) return;
+            userEl.textContent = `${me.username} (${me.role})`;
+            draw();
+            loadZones();
+        }
+
+        boot();
     </script>
 </body>
 

@@ -14,12 +14,14 @@ import time
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
 from bus import bus
 from api.ws_handler import manager
+from api.routes.auth import router as auth_router
 from api.routes.cameras import router as cameras_router
 from api.routes.zones import router as zones_router
 from api.routes.incidents import router as incidents_router
@@ -75,6 +77,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ArgusV", version="1.0", lifespan=lifespan)
+app.include_router(auth_router)
 app.include_router(cameras_router)
 app.include_router(zones_router)
 app.include_router(incidents_router)
@@ -134,6 +137,7 @@ async def list_incidents(
     threat_level: str  = None,
     status:       str  = None,
     limit:        int  = 50,
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
 ):
     from db.connection import get_db_sync
     from db.models import Incident
@@ -167,6 +171,7 @@ async def search_detections(
     object_class: str   = None,
     threats_only: bool  = False,
     limit:        int   = 100,
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
 ):
     from db.connection import get_db_sync
     from db.models import Detection

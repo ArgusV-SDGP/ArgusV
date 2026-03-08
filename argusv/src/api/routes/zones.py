@@ -16,6 +16,7 @@ from shapely.geometry import Polygon
 from sqlalchemy.orm import Session
 
 import config as cfg
+from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
 from db.connection import get_db
 from db.models import Zone
 
@@ -118,6 +119,7 @@ def list_zones(
     active_only: bool = Query(False),
     zone_type: Optional[str] = Query(None),
     db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
 ):
     query = db.query(Zone)
     if active_only:
@@ -129,7 +131,11 @@ def list_zones(
 
 
 @router.get("/{zone_id}")
-def get_zone(zone_id: str, db: Session = Depends(get_db)):
+def get_zone(
+    zone_id: str,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
+):
     zid = _parse_zone_id(zone_id)
     zone = db.query(Zone).filter(Zone.zone_id == zid).first()
     if not zone:
@@ -138,7 +144,11 @@ def get_zone(zone_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("", status_code=201)
-def create_zone(payload: ZoneCreate, db: Session = Depends(get_db)):
+def create_zone(
+    payload: ZoneCreate,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR)),
+):
     polygon_coords = _validate_polygon(payload.polygon_coords)
     zone = Zone(
         zone_id=uuid.uuid4(),
@@ -157,7 +167,12 @@ def create_zone(payload: ZoneCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{zone_id}")
-def update_zone(zone_id: str, payload: ZoneCreate, db: Session = Depends(get_db)):
+def update_zone(
+    zone_id: str,
+    payload: ZoneCreate,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR)),
+):
     zid = _parse_zone_id(zone_id)
     zone = db.query(Zone).filter(Zone.zone_id == zid).first()
     if not zone:
@@ -176,7 +191,12 @@ def update_zone(zone_id: str, payload: ZoneCreate, db: Session = Depends(get_db)
 
 
 @router.patch("/{zone_id}")
-def patch_zone(zone_id: str, payload: ZonePatch, db: Session = Depends(get_db)):
+def patch_zone(
+    zone_id: str,
+    payload: ZonePatch,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR)),
+):
     zid = _parse_zone_id(zone_id)
     zone = db.query(Zone).filter(Zone.zone_id == zid).first()
     if not zone:
@@ -202,7 +222,11 @@ def patch_zone(zone_id: str, payload: ZonePatch, db: Session = Depends(get_db)):
 
 
 @router.delete("/{zone_id}", status_code=204)
-def delete_zone(zone_id: str, db: Session = Depends(get_db)):
+def delete_zone(
+    zone_id: str,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN)),
+):
     zid = _parse_zone_id(zone_id)
     zone = db.query(Zone).filter(Zone.zone_id == zid).first()
     if not zone:

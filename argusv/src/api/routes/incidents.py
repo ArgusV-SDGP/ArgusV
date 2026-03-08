@@ -10,6 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
+
+from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
 from db.connection import get_db
 from db.models import Incident
 
@@ -38,7 +40,11 @@ def _serialize_incident(inc: Incident) -> dict:
 
 
 @router.get("/{incident_id}")
-def get_incident(incident_id: str, db: Session = Depends(get_db)):
+def get_incident(
+    incident_id: str,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
+):
     try:
         iid = uuid.UUID(incident_id)
     except ValueError:
@@ -50,7 +56,12 @@ def get_incident(incident_id: str, db: Session = Depends(get_db)):
 
 
 @router.patch("/{incident_id}")
-def patch_incident(incident_id: str, payload: IncidentPatch, db: Session = Depends(get_db)):
+def patch_incident(
+    incident_id: str,
+    payload: IncidentPatch,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR)),
+):
     try:
         iid = uuid.UUID(incident_id)
     except ValueError:

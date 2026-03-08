@@ -168,3 +168,14 @@ class RagConfig(Base):
     key   = Column(String, primary_key=True)
     value = Column(Text)
     group = Column(String)
+
+
+class UserAccount(Base):
+    __tablename__ = "user_accounts"
+
+    user_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    username = Column(String, nullable=False, unique=True, index=True)
+    password_hash = Column(String, nullable=False)
+    role = Column(String, nullable=False, default="VIEWER")
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

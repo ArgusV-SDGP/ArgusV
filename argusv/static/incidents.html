@@ -3,6 +3,7 @@
 
 <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>ArgusV — Incidents</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <style>
@@ -17,54 +18,435 @@
             background: #0a0c10;
             color: #e2e8f0;
             min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            padding: 20px;
+        }
+
+        .layout {
+            max-width: 1240px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1.1fr 0.9fr;
             gap: 16px;
         }
 
-        h1 {
-            font-size: 24px;
-            font-weight: 700;
+        .panel {
+            background: #131823;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 14px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        h1,
+        h2 {
+            font-size: 20px;
         }
 
         p {
-            color: #64748b;
-            font-size: 14px;
+            color: #94a3b8;
+            font-size: 13px;
+            margin-top: 4px;
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .btn {
+            border: none;
+            border-radius: 8px;
+            padding: 9px 12px;
+            background: #1f2937;
+            color: #e2e8f0;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .btn.primary {
+            background: #1d4ed8;
+        }
+
+        .btn.danger {
+            background: #b91c1c;
+        }
+
+        .filters {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 120px;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        input,
+        select,
+        textarea {
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: #0f172a;
+            color: #e2e8f0;
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        textarea {
+            min-height: 86px;
+            resize: vertical;
+        }
+
+        .status {
+            font-size: 13px;
+            min-height: 20px;
+            margin-top: 10px;
+        }
+
+        .status.error {
+            color: #fda4af;
+        }
+
+        .status.success {
+            color: #86efac;
+        }
+
+        .list {
+            max-height: 72vh;
+            overflow: auto;
+            display: grid;
+            gap: 8px;
+        }
+
+        .incident {
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: #0f172a;
+            cursor: pointer;
+        }
+
+        .incident.active {
+            border-color: #3b82f6;
+            box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.4);
+        }
+
+        .meta {
+            color: #94a3b8;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .pill {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            margin-left: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+        }
+
+        .pill.HIGH {
+            border-color: #ef4444;
+            color: #fecaca;
+        }
+
+        .pill.MEDIUM {
+            border-color: #f59e0b;
+            color: #fde68a;
+        }
+
+        .pill.LOW {
+            border-color: #60a5fa;
+            color: #bfdbfe;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin: 10px 0;
+        }
+
+        .field {
+            background: #0f172a;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 8px;
+            font-size: 12px;
+        }
+
+        .field .k {
+            color: #94a3b8;
+            display: block;
+            margin-bottom: 3px;
+        }
+
+        .field .v {
+            color: #e2e8f0;
+            font-weight: 600;
         }
 
         a {
-            color: #3b82f6;
+            color: #60a5fa;
             text-decoration: none;
         }
 
-        .badge {
-            background: #1a1d24;
-            border: 1px solid rgba(255, 255, 255, 0.07);
-            border-radius: 8px;
-            padding: 24px 32px;
-            text-align: center;
-        }
+        @media (max-width: 980px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
 
-        .task {
-            font-family: monospace;
-            font-size: 11px;
-            color: #f97316;
-            margin-top: 8px;
+            .filters {
+                grid-template-columns: 1fr 1fr;
+            }
         }
     </style>
 </head>
 
 <body>
-    <div class="badge">
-        <h1>🚨 Incident History</h1>
-        <p>Sortable incident log — coming soon</p>
-        <div class="task">Tasks: DCFG-01, DCFG-02, API-16, API-17</div>
-        <br /><a href="/">← Back to Live Feed</a>
+    <div class="layout">
+        <section class="panel">
+            <div class="header">
+                <div>
+                    <h1>🚨 Incident History</h1>
+                    <p>Filter, inspect, resolve, annotate incidents.</p>
+                </div>
+                <div class="actions">
+                    <span id="authUser" style="font-size:12px;color:#94a3b8;"></span>
+                    <button id="refreshBtn" class="btn" type="button">Refresh</button>
+                    <button id="logoutBtn" class="btn" type="button">Logout</button>
+                    <a href="/">← Back</a>
+                </div>
+            </div>
+
+            <div class="filters">
+                <input id="cameraFilter" placeholder="camera_id (optional)" />
+                <select id="threatFilter">
+                    <option value="">All Threat Levels</option>
+                    <option value="HIGH">HIGH</option>
+                    <option value="MEDIUM">MEDIUM</option>
+                    <option value="LOW">LOW</option>
+                </select>
+                <select id="statusFilter">
+                    <option value="">All Statuses</option>
+                    <option value="OPEN">OPEN</option>
+                    <option value="RESOLVED">RESOLVED</option>
+                </select>
+                <input id="limitFilter" type="number" min="1" max="200" value="50" />
+            </div>
+
+            <div id="listStatus" class="status"></div>
+            <div id="incidentList" class="list"></div>
+        </section>
+
+        <section class="panel">
+            <div class="header">
+                <div>
+                    <h2>Incident Detail</h2>
+                    <p>Select an incident to review action state.</p>
+                </div>
+            </div>
+            <div id="detailStatus" class="status"></div>
+            <div id="incidentDetail">
+                <p>No incident selected.</p>
+            </div>
+        </section>
     </div>
-    <!-- TODO DCFG-01: incident list with camera/severity/status filters -->
-    <!-- TODO DCFG-02: resolve button → PATCH /api/incidents/{id} -->
+
+    <script src="/static/auth.js"></script>
+    <script>
+        const listEl = document.getElementById("incidentList");
+        const detailEl = document.getElementById("incidentDetail");
+        const listStatusEl = document.getElementById("listStatus");
+        const detailStatusEl = document.getElementById("detailStatus");
+        let incidents = [];
+        let selectedId = null;
+
+        function setStatus(el, text, type = "") {
+            el.textContent = text;
+            el.className = `status ${type}`;
+        }
+
+        function formatDate(value) {
+            if (!value) return "-";
+            const d = new Date(value);
+            if (Number.isNaN(d.getTime())) return value;
+            return d.toLocaleString();
+        }
+
+        function toQuery() {
+            const params = new URLSearchParams();
+            const camera = document.getElementById("cameraFilter").value.trim();
+            const threat = document.getElementById("threatFilter").value;
+            const status = document.getElementById("statusFilter").value;
+            const limit = Number(document.getElementById("limitFilter").value || 50);
+            if (camera) params.set("camera_id", camera);
+            if (threat) params.set("threat_level", threat);
+            if (status) params.set("status", status);
+            params.set("limit", String(Math.max(1, Math.min(200, limit))));
+            return params.toString();
+        }
+
+        function renderList() {
+            if (!incidents.length) {
+                listEl.innerHTML = `<div class="incident">No incidents found.</div>`;
+                return;
+            }
+            listEl.innerHTML = incidents.map((incident) => `
+                <div class="incident ${incident.incident_id === selectedId ? "active" : ""}" data-id="${incident.incident_id}">
+                    <div>
+                        <strong>${incident.object_class || "unknown"}</strong>
+                        <span class="pill ${incident.threat_level || "LOW"}">${incident.threat_level || "LOW"}</span>
+                    </div>
+                    <div class="meta">Status: ${incident.status} • Camera: ${incident.camera_id || "-"} • Zone: ${incident.zone_name || "-"}</div>
+                    <div class="meta">${formatDate(incident.detected_at)}</div>
+                    <div class="meta">${incident.summary || ""}</div>
+                </div>
+            `).join("");
+
+            listEl.querySelectorAll(".incident[data-id]").forEach((node) => {
+                node.addEventListener("click", () => {
+                    selectedId = node.dataset.id;
+                    renderList();
+                    loadIncidentDetail(selectedId);
+                });
+            });
+        }
+
+        async function loadIncidents() {
+            setStatus(listStatusEl, "Loading incidents...");
+            try {
+                const res = await window.ArgusAuth.authFetch(`/api/incidents?${toQuery()}`);
+                if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    throw new Error(body.detail || `Failed (${res.status})`);
+                }
+                incidents = await res.json();
+                if (selectedId && !incidents.some((i) => i.incident_id === selectedId)) {
+                    selectedId = null;
+                    detailEl.innerHTML = `<p>No incident selected.</p>`;
+                }
+                renderList();
+                setStatus(listStatusEl, `Loaded ${incidents.length} incident(s).`, "success");
+            } catch (error) {
+                incidents = [];
+                renderList();
+                setStatus(listStatusEl, error.message, "error");
+            }
+        }
+
+        function renderDetail(incident) {
+            const isResolved = (incident.status || "").toUpperCase() === "RESOLVED";
+            detailEl.innerHTML = `
+                <div class="detail-grid">
+                    <div class="field"><span class="k">Incident ID</span><span class="v">${incident.incident_id}</span></div>
+                    <div class="field"><span class="k">Status</span><span class="v">${incident.status || "-"}</span></div>
+                    <div class="field"><span class="k">Threat Level</span><span class="v">${incident.threat_level || "-"}</span></div>
+                    <div class="field"><span class="k">Object Class</span><span class="v">${incident.object_class || "-"}</span></div>
+                    <div class="field"><span class="k">Camera</span><span class="v">${incident.camera_id || "-"}</span></div>
+                    <div class="field"><span class="k">Zone</span><span class="v">${incident.zone_name || "-"}</span></div>
+                    <div class="field"><span class="k">Detected</span><span class="v">${formatDate(incident.detected_at)}</span></div>
+                    <div class="field"><span class="k">Resolved</span><span class="v">${formatDate(incident.resolved_at)}</span></div>
+                </div>
+                <div class="field" style="margin-bottom:10px;">
+                    <span class="k">Summary</span>
+                    <span class="v">${incident.summary || "-"}</span>
+                </div>
+                <label for="annotationInput">Annotation</label>
+                <textarea id="annotationInput" placeholder="Add operator note...">${(incident.metadata_json && incident.metadata_json.annotation) || ""}</textarea>
+                <div class="actions" style="margin-top:10px;">
+                    <button id="saveAnnotationBtn" class="btn" type="button">Save Annotation</button>
+                    <button id="toggleStatusBtn" class="btn ${isResolved ? "" : "primary"}" type="button">${isResolved ? "Reopen Incident" : "Resolve Incident"}</button>
+                    <button id="replayBtn" class="btn" type="button">Get Replay Link</button>
+                </div>
+                <div id="replayLink" class="meta" style="margin-top:8px;"></div>
+            `;
+
+            document.getElementById("saveAnnotationBtn").addEventListener("click", () =>
+                patchIncident(incident.incident_id, { annotation: document.getElementById("annotationInput").value.trim() }, "Annotation updated.")
+            );
+            document.getElementById("toggleStatusBtn").addEventListener("click", () =>
+                patchIncident(
+                    incident.incident_id,
+                    { status: isResolved ? "OPEN" : "RESOLVED" },
+                    isResolved ? "Incident reopened." : "Incident resolved."
+                )
+            );
+            document.getElementById("replayBtn").addEventListener("click", () => loadReplay(incident.incident_id));
+        }
+
+        async function loadIncidentDetail(incidentId) {
+            setStatus(detailStatusEl, "Loading incident detail...");
+            try {
+                const res = await window.ArgusAuth.authFetch(`/api/incidents/${incidentId}`);
+                if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    throw new Error(body.detail || `Failed (${res.status})`);
+                }
+                const incident = await res.json();
+                renderDetail(incident);
+                setStatus(detailStatusEl, "Incident detail loaded.", "success");
+            } catch (error) {
+                detailEl.innerHTML = `<p>Failed to load incident detail.</p>`;
+                setStatus(detailStatusEl, error.message, "error");
+            }
+        }
+
+        async function patchIncident(incidentId, payload, successMessage) {
+            try {
+                const res = await window.ArgusAuth.authFetch(`/api/incidents/${incidentId}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                });
+                if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    throw new Error(body.detail || `Failed (${res.status})`);
+                }
+                setStatus(detailStatusEl, successMessage, "success");
+                await loadIncidents();
+                await loadIncidentDetail(incidentId);
+            } catch (error) {
+                setStatus(detailStatusEl, error.message, "error");
+            }
+        }
+
+        async function loadReplay(incidentId) {
+            const replayEl = document.getElementById("replayLink");
+            if (!replayEl) return;
+            replayEl.textContent = "Loading replay...";
+            try {
+                const res = await window.ArgusAuth.authFetch(`/api/incidents/${incidentId}/replay`);
+                if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    throw new Error(body.detail || `Failed (${res.status})`);
+                }
+                const data = await res.json();
+                replayEl.innerHTML = `Replay: <a href="${data.playlist_url}" target="_blank">${data.playlist_url}</a>`;
+            } catch (error) {
+                replayEl.textContent = error.message;
+            }
+        }
+
+        async function boot() {
+            const me = await window.ArgusAuth.requireAuth();
+            if (!me) return;
+            document.getElementById("authUser").textContent = `${me.username} (${me.role})`;
+            document.getElementById("logoutBtn").addEventListener("click", () => window.ArgusAuth.logout());
+            document.getElementById("refreshBtn").addEventListener("click", loadIncidents);
+            document.getElementById("cameraFilter").addEventListener("change", loadIncidents);
+            document.getElementById("threatFilter").addEventListener("change", loadIncidents);
+            document.getElementById("statusFilter").addEventListener("change", loadIncidents);
+            document.getElementById("limitFilter").addEventListener("change", loadIncidents);
+            await loadIncidents();
+        }
+
+        boot();
+    </script>
 </body>
 
 </html>
