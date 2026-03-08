@@ -917,6 +917,9 @@
         📡 Detection Feed
         <span class="badge" id="feed-badge-tab" style="font-size:10px;padding:1px 6px">0</span>
       </button>
+      <button class="view-tab" id="tab-birdseye" onclick="switchView('birdseye')">
+        🗺️ Bird's Eye
+      </button>
     </div>
 
     <!-- ── Camera Grid Section ── -->
@@ -955,6 +958,17 @@
           <div class="e-title">Watching for activity…</div>
           <div class="e-sub">Detection events will appear here in real-time</div>
         </div>
+      </div>
+    </section>
+
+    <!-- ── Bird's Eye Section ── -->
+    <section id="birdseye-section" style="display:none;">
+      <div class="section-header">
+        <div class="section-title">🗺️ Bird's Eye View</div>
+      </div>
+      <div style="text-align:center;">
+        <img id="birdseye-img" src="/api/birdseye" alt="Bird's Eye View"
+             style="max-width:100%;border-radius:12px;border:1px solid var(--border);background:var(--surface);" />
       </div>
     </section>
   </div>
@@ -1248,8 +1262,28 @@
       currentView = view;
       document.getElementById('tab-cameras').classList.toggle('active', view === 'cameras');
       document.getElementById('tab-feed').classList.toggle('active', view === 'feed');
+      document.getElementById('tab-birdseye').classList.toggle('active', view === 'birdseye');
       document.getElementById('camera-grid-section').style.display = view === 'cameras' ? '' : 'none';
       document.getElementById('feed-section').style.display = view === 'feed' ? '' : 'none';
+      document.getElementById('birdseye-section').style.display = view === 'birdseye' ? '' : 'none';
+      // Start/stop birdseye auto-refresh
+      if (view === 'birdseye') startBirdseyeRefresh();
+      else stopBirdseyeRefresh();
+    }
+
+    // ── Bird's Eye auto-refresh ──────────────────────────────────────────────
+    let birdseyeTimer = null;
+    function startBirdseyeRefresh() {
+      stopBirdseyeRefresh();
+      refreshBirdseye();
+      birdseyeTimer = setInterval(refreshBirdseye, 2000);
+    }
+    function stopBirdseyeRefresh() {
+      if (birdseyeTimer) { clearInterval(birdseyeTimer); birdseyeTimer = null; }
+    }
+    function refreshBirdseye() {
+      const img = document.getElementById('birdseye-img');
+      if (img) img.src = '/api/birdseye?t=' + Date.now();
     }
 
     // ── Live Camera Grid (HLS.js) ────────────────────────────────────────────
