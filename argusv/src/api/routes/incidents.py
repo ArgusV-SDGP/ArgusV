@@ -1,6 +1,13 @@
 """
 api/routes/incidents.py — Incident management
 Tasks: API-16, API-17
+
+BRAYAN NOTE: Two endpoints exist:
+  - GET  /{incident_id}  → returns serialised incident (id, camera, zone, threat, status, timestamps)
+  - PATCH /{incident_id} → update status (OPEN/RESOLVED) and add annotation to metadata_json
+Serializer: _serialize_incident() flattens the ORM model to a JSON-friendly dict.
+No list endpoint here — the bulk GET /api/incidents lives in api/server.py.
+No auth middleware applied yet — get_current_user is a no-op stub.
 """
 
 from datetime import datetime, timezone

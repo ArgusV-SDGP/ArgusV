@@ -1,6 +1,16 @@
 """
 config.py — Centralised configuration for the ArgusV monolith.
 All env vars in one place instead of scattered across 8 services.
+
+BRAYAN NOTE: Key env vars already present:
+  Infrastructure: POSTGRES_URL, REDIS_URL, MINIO_*
+  Cameras:        CAMERA_ID, RTSP_URL, CAMERAS (multi-cam JSON)
+  Detection:      DETECT_FPS, CONF_THRESHOLD, YOLO_MODEL, LOITER_SEC, USE_MOTION_GATE
+  Recording:      RECORDINGS_ENABLED, SEGMENT_DURATION_SEC, RECORDINGS_RETAIN_DAYS (7 days)
+  VLM:            OPENAI_API_KEY, VLM_MODEL (gpt-4o), USE_TIERED_VLM, VLM_MAX_WORKERS
+  Notifications:  SLACK_BOT_TOKEN, SLACK_CHANNEL_ID, RATE_LIMIT_TTL
+  API:            API_HOST, API_PORT, LOG_LEVEL
+Vars I need to add later: INCIDENT_AUTO_RESOLVE_MINUTES, STATIONARY_N/M_FRAMES, ENABLE_DET06
 """
 
 import os

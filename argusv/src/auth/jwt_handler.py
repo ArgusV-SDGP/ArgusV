@@ -2,6 +2,14 @@
 auth/jwt_handler.py — JWT authentication
 -----------------------------------------
 Tasks: AUTH-01, AUTH-06, AUTH-07
+
+BRAYAN NOTE: Auth is fully stubbed — nothing works yet.
+  - create_access_token() → raises NotImplementedError (AUTH-01 TODO)
+  - verify_token()        → raises NotImplementedError (AUTH-01 TODO)
+  - get_current_user()    → returns {"user": "anonymous", "role": "ADMIN"} for ALL requests
+  Secret: JWT_SECRET env var (default "change-me-in-production"), HS256, 60min expiry.
+  My job (AUTH-03): Wire frontend fetch to POST /api/auth/token, attach Bearer header,
+  handle 401 → redirect to login. Backend implementation is DEV-3's responsibility.
 """
 # TODO AUTH-01: POST /auth/token → issue JWT
 # TODO AUTH-06: API key auth (Bearer token)
