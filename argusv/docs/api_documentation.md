@@ -30,9 +30,11 @@ Base URL: `http://localhost:8000`
 - `GET /api/detections`
 
 ### Zones
-- `GET /api/zones/`
-- `POST /api/zones/`
+- `GET /api/zones`
+- `GET /api/zones/{zone_id}`
+- `POST /api/zones`
 - `PUT /api/zones/{zone_id}`
+- `PATCH /api/zones/{zone_id}`
 - `DELETE /api/zones/{zone_id}`
 
 ### Recordings
@@ -67,9 +69,9 @@ curl -X POST http://localhost:8000/api/cameras \
 
 2. Create zone
 ```bash
-curl -X POST http://localhost:8000/api/zones/ \
+curl -X POST http://localhost:8000/api/zones \
   -H "Content-Type: application/json" \
-  -d '{"name":"Gate","polygon_coords":[[0.10,0.20],[0.45,0.20],[0.45,0.80]],"zone_type":"security","dwell_threshold_sec":30}'
+  -d '{"name":"Gate","polygon_coords":[[0.10,0.20],[0.45,0.20],[0.45,0.80]],"zone_type":"security","dwell_threshold_sec":30,"active":true}'
 ```
 
 3. Update runtime parameters
@@ -106,13 +108,14 @@ curl -X POST http://localhost:8000/api/notification-rules \
 }
 ```
 
-### `POST /api/zones/`
+### `POST /api/zones`
 ```json
 {
   "name": "Gate",
   "polygon_coords": [[0.1, 0.2], [0.45, 0.2], [0.45, 0.8]],
   "zone_type": "security",
-  "dwell_threshold_sec": 30
+  "dwell_threshold_sec": 30,
+  "active": true
 }
 ```
 

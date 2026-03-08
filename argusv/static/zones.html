@@ -3,7 +3,8 @@
 
 <head>
     <meta charset="UTF-8" />
-    <title>ArgusV — Zone Config</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ArgusV — Zones</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <style>
         * {
@@ -17,55 +18,365 @@
             background: #0a0c10;
             color: #e2e8f0;
             min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 16px;
+            padding: 24px;
         }
 
-        h1 {
-            font-size: 24px;
+        .layout {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 20px;
+        }
+
+        .panel {
+            background: #131823;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
+            padding: 16px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        h1,
+        h2 {
+            font-size: 18px;
             font-weight: 700;
         }
 
         p {
-            color: #64748b;
-            font-size: 14px;
+            color: #94a3b8;
+            font-size: 13px;
+            margin-top: 4px;
+        }
+
+        #zoneCanvas {
+            width: 100%;
+            aspect-ratio: 16/9;
+            display: block;
+            background: linear-gradient(180deg, #121927, #0b1320);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            cursor: crosshair;
+        }
+
+        .toolbar {
+            margin-top: 10px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn,
+        button {
+            border: none;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-weight: 600;
+            background: #1f2937;
+            color: #e2e8f0;
+            cursor: pointer;
+        }
+
+        .btn:hover,
+        button:hover {
+            background: #2d3a4d;
+        }
+
+        .btn-primary {
+            background: #1d4ed8;
+        }
+
+        .btn-primary:hover {
+            background: #1e40af;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .form-grid .full {
+            grid-column: 1 / -1;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            color: #94a3b8;
+            margin-bottom: 6px;
+        }
+
+        input,
+        select {
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: #0f172a;
+            color: #e2e8f0;
+            border-radius: 8px;
+            padding: 10px;
+        }
+
+        .status {
+            font-size: 13px;
+            margin-top: 10px;
+            min-height: 18px;
+        }
+
+        .status.error {
+            color: #fda4af;
+        }
+
+        .status.success {
+            color: #86efac;
+        }
+
+        .zones-list {
+            margin-top: 14px;
+            max-height: 70vh;
+            overflow: auto;
+            display: grid;
+            gap: 8px;
+        }
+
+        .zone-item {
+            padding: 10px;
+            border-radius: 8px;
+            background: #0f172a;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .zone-item .meta {
+            font-size: 12px;
+            color: #94a3b8;
+            margin-top: 5px;
         }
 
         a {
-            color: #3b82f6;
+            color: #60a5fa;
             text-decoration: none;
+            font-size: 13px;
         }
 
-        .badge {
-            background: #1a1d24;
-            border: 1px solid rgba(255, 255, 255, 0.07);
-            border-radius: 8px;
-            padding: 24px 32px;
-            text-align: center;
-        }
-
-        .task {
-            font-family: monospace;
-            font-size: 11px;
-            color: #f97316;
-            margin-top: 8px;
+        @media (max-width: 980px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 
 <body>
-    <div class="badge">
-        <h1>📐 Zone Configuration</h1>
-        <p>Draw zones on camera frame — coming soon</p>
-        <div class="task">Tasks: DCFG-04 to DCFG-06, ZONE-01 to ZONE-08</div>
-        <br /><a href="/">← Back to Live Feed</a>
+    <div class="layout">
+        <section class="panel">
+            <div class="header">
+                <div>
+                    <h1>📐 Draw Zone Polygon</h1>
+                    <p>Click to add points (normalized to frame). Minimum 3 points.</p>
+                </div>
+                <a href="/">← Back to Live Feed</a>
+            </div>
+
+            <canvas id="zoneCanvas" width="960" height="540"></canvas>
+            <div class="toolbar">
+                <button id="undoBtn" type="button">Undo</button>
+                <button id="clearBtn" type="button">Clear</button>
+            </div>
+
+            <form id="zoneForm" class="form-grid">
+                <div>
+                    <label for="name">Zone Name</label>
+                    <input id="name" name="name" required placeholder="Front Gate" />
+                </div>
+                <div>
+                    <label for="zone_type">Zone Type</label>
+                    <select id="zone_type" name="zone_type">
+                        <option value="security">security</option>
+                        <option value="intrusion">intrusion</option>
+                        <option value="loitering">loitering</option>
+                        <option value="restricted">restricted</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="dwell_threshold_sec">Dwell Threshold (sec)</label>
+                    <input id="dwell_threshold_sec" name="dwell_threshold_sec" type="number" min="1" value="30" />
+                </div>
+                <div>
+                    <label for="active">Status</label>
+                    <select id="active" name="active">
+                        <option value="true">Active</option>
+                        <option value="false">Inactive</option>
+                    </select>
+                </div>
+                <div class="full">
+                    <button class="btn-primary" type="submit">Create Zone</button>
+                </div>
+            </form>
+            <div id="formStatus" class="status"></div>
+        </section>
+
+        <section class="panel">
+            <div class="header">
+                <div>
+                    <h2>Zone List</h2>
+                    <p>Current configured zones from API</p>
+                </div>
+                <button id="refreshBtn" type="button">Refresh</button>
+            </div>
+            <div id="zonesList" class="zones-list"></div>
+        </section>
     </div>
-    <!-- TODO DCFG-04: camera selector + snapshot frame -->
-    <!-- TODO DCFG-05: canvas polygon editor (react-konva / fabric.js) -->
-    <!-- TODO ZONE-01: POST /api/zones with drawn polygon -->
+
+    <script>
+        const canvas = document.getElementById("zoneCanvas");
+        const ctx = canvas.getContext("2d");
+        const points = [];
+        const statusEl = document.getElementById("formStatus");
+        const listEl = document.getElementById("zonesList");
+
+        function setStatus(text, type = "") {
+            statusEl.textContent = text;
+            statusEl.className = `status ${type}`;
+        }
+
+        function toNorm(x, y) {
+            return [Number((x / canvas.width).toFixed(4)), Number((y / canvas.height).toFixed(4))];
+        }
+
+        function toCanvas([x, y]) {
+            return [x * canvas.width, y * canvas.height];
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.strokeStyle = "rgba(56, 189, 248, 0.9)";
+            ctx.lineWidth = 2;
+            if (points.length > 0) {
+                ctx.beginPath();
+                const [sx, sy] = toCanvas(points[0]);
+                ctx.moveTo(sx, sy);
+                for (let i = 1; i < points.length; i++) {
+                    const [x, y] = toCanvas(points[i]);
+                    ctx.lineTo(x, y);
+                }
+                if (points.length >= 3) {
+                    ctx.closePath();
+                    ctx.fillStyle = "rgba(14, 165, 233, 0.2)";
+                    ctx.fill();
+                }
+                ctx.stroke();
+            }
+
+            points.forEach((pt, idx) => {
+                const [x, y] = toCanvas(pt);
+                ctx.fillStyle = "#f8fafc";
+                ctx.beginPath();
+                ctx.arc(x, y, 4, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = "#cbd5e1";
+                ctx.font = "12px Inter";
+                ctx.fillText(`${idx + 1}`, x + 6, y - 6);
+            });
+        }
+
+        canvas.addEventListener("click", (event) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = (event.clientX - rect.left) * (canvas.width / rect.width);
+            const y = (event.clientY - rect.top) * (canvas.height / rect.height);
+            points.push(toNorm(x, y));
+            draw();
+            setStatus(`Points: ${points.length}`);
+        });
+
+        document.getElementById("undoBtn").addEventListener("click", () => {
+            points.pop();
+            draw();
+            setStatus(`Points: ${points.length}`);
+        });
+
+        document.getElementById("clearBtn").addEventListener("click", () => {
+            points.length = 0;
+            draw();
+            setStatus("Canvas cleared");
+        });
+
+        async function loadZones() {
+            listEl.innerHTML = `<div class="zone-item">Loading zones...</div>`;
+            try {
+                const response = await fetch("/api/zones");
+                if (!response.ok) {
+                    throw new Error(`Failed to load zones (${response.status})`);
+                }
+                const zones = await response.json();
+                if (!zones.length) {
+                    listEl.innerHTML = `<div class="zone-item">No zones created yet.</div>`;
+                    return;
+                }
+                listEl.innerHTML = zones.map((zone) => `
+                    <div class="zone-item">
+                        <strong>${zone.name}</strong>
+                        <div class="meta">Type: ${zone.zone_type} • Dwell: ${zone.dwell_threshold_sec}s • Active: ${zone.active}</div>
+                        <div class="meta">Points: ${zone.polygon_coords.length} • ID: ${zone.zone_id}</div>
+                    </div>
+                `).join("");
+            } catch (error) {
+                listEl.innerHTML = `<div class="zone-item">Error: ${error.message}</div>`;
+            }
+        }
+
+        document.getElementById("refreshBtn").addEventListener("click", loadZones);
+
+        document.getElementById("zoneForm").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            if (points.length < 3) {
+                setStatus("Add at least 3 points before creating a zone.", "error");
+                return;
+            }
+
+            const formData = new FormData(event.target);
+            const payload = {
+                name: String(formData.get("name") || "").trim(),
+                zone_type: String(formData.get("zone_type") || "security"),
+                dwell_threshold_sec: Number(formData.get("dwell_threshold_sec") || 30),
+                active: String(formData.get("active")) === "true",
+                polygon_coords: points,
+            };
+            if (!payload.name) {
+                setStatus("Zone name is required.", "error");
+                return;
+            }
+
+            try {
+                const response = await fetch("/api/zones", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                });
+                if (!response.ok) {
+                    const detail = await response.json().catch(() => ({}));
+                    throw new Error(detail.detail || `Create failed (${response.status})`);
+                }
+                points.length = 0;
+                draw();
+                event.target.reset();
+                document.getElementById("dwell_threshold_sec").value = "30";
+                setStatus("Zone created and published for hot-reload.", "success");
+                await loadZones();
+            } catch (error) {
+                setStatus(error.message, "error");
+            }
+        });
+
+        draw();
+        loadZones();
+    </script>
 </body>
 
 </html>

@@ -287,11 +287,41 @@ class ZoneMatcher:
                     if msg["type"] == "message":
                         data = json.loads(msg["data"])
                         if data.get("type") == "ZONE_UPDATE":
-                            self._load_from_db()
+                            self._apply_zone_update(data)
             except Exception as e:
                 logger.warning(f"[ZoneMatcher] Redis listener failed: {e}")
 
         threading.Thread(target=_listen, daemon=True, name="zone-listener").start()
+
+    def _apply_zone_update(self, data: dict):
+        action = data.get("action")
+        zone_id = data.get("zone_id")
+        zone = data.get("zone")
+
+        if not zone_id:
+            self._load_from_db()
+            return
+
+        if action == "deleted":
+            with self._lock:
+                self._zones.pop(zone_id, None)
+            logger.info(f"[ZoneMatcher] Hot-reloaded delete for zone={zone_id}")
+            return
+
+        if action in {"created", "updated"} and isinstance(zone, dict):
+            with self._lock:
+                if zone.get("active", True):
+                    self._zones[zone_id] = {
+                        "id": zone_id,
+                        "name": zone.get("name", ""),
+                        "polygon_coords": zone.get("polygon_coords", []),
+                    }
+                else:
+                    self._zones.pop(zone_id, None)
+            logger.info(f"[ZoneMatcher] Hot-reloaded {action} for zone={zone_id}")
+            return
+
+        self._load_from_db()
 
     def match(self, cx_norm: float, cy_norm: float) -> Optional[dict]:
         from shapely.geometry import Point, Polygon
