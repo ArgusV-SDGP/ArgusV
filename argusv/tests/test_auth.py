@@ -10,6 +10,8 @@ from auth.jwt_handler import (
     create_access_token,
     verify_token,
     get_current_user,
+    require_role,
+    Role,
     SECRET_KEY,
     ALGORITHM,
 )
@@ -131,3 +133,54 @@ async def test_get_current_user_bad_api_key():
         with pytest.raises(HTTPException) as exc_info:
             await get_current_user(credentials=FakeCreds())
         assert exc_info.value.status_code == 401
+
+
+# ── require_role (RBAC) ─────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_admin_passes_admin_role_check():
+    token = create_access_token({"sub": "admin", "role": "ADMIN"})
+
+    class FakeCreds:
+        scheme = "Bearer"
+        credentials = token
+
+    checker = require_role(Role.ADMIN)
+    user = await checker(user=await get_current_user(credentials=FakeCreds()))
+    assert user["role"] == "ADMIN"
+
+
+@pytest.mark.asyncio
+async def test_viewer_blocked_by_admin_role_check():
+    token = create_access_token({"sub": "viewer", "role": "VIEWER"})
+
+    class FakeCreds:
+        scheme = "Bearer"
+        credentials = token
+
+    checker = require_role(Role.ADMIN)
+    with pytest.raises(HTTPException) as exc_info:
+        await checker(user=await get_current_user(credentials=FakeCreds()))
+    assert exc_info.value.status_code == 403
+    assert "permissions" in exc_info.value.detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_viewer_passes_viewer_role_check():
+    token = create_access_token({"sub": "viewer", "role": "VIEWER"})
+
+    class FakeCreds:
+        scheme = "Bearer"
+        credentials = token
+
+    checker = require_role(Role.VIEWER, Role.ADMIN)
+    user = await checker(user=await get_current_user(credentials=FakeCreds()))
+    assert user["role"] == "VIEWER"
+
+
+@pytest.mark.asyncio
+async def test_no_credentials_rejected_before_rbac():
+    """Without any token, get_current_user raises 401 before RBAC even runs."""
+    with pytest.raises(HTTPException) as exc_info:
+        await get_current_user(credentials=None)
+    assert exc_info.value.status_code == 401
