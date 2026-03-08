@@ -41,6 +41,10 @@ async def stream_ingestion_worker():
             event_type = event.get("event_type", "DETECTED")
             confidence = event.get("confidence", 0.0)
 
+            # Tap START events into the snapshot worker
+            if event_type == "START" and event.get("trigger_frame_b64"):
+                await bus.snapshots.put(event)
+
             # Decide whether VLM analysis is needed
             needs_vlm = (
                 event_type in ("START", "LOITERING") and

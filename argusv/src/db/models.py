@@ -20,6 +20,7 @@ from sqlalchemy import (
     ForeignKey, Integer, Text, BigInteger, Index,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime
 import uuid
@@ -146,6 +147,7 @@ class Detection(Base):
     is_threat    = Column(Boolean, nullable=True)
     threat_level = Column(String,  nullable=True)
     vlm_summary  = Column(Text,    nullable=True)
+    vlm_embedding= Column(Vector(384), nullable=True) # Semantic search vector
 
     camera_rel   = relationship("Camera",   back_populates="detections")
     segment      = relationship("Segment",  back_populates="detections")
@@ -168,3 +170,14 @@ class RagConfig(Base):
     key   = Column(String, primary_key=True)
     value = Column(Text)
     group = Column(String)
+
+
+class UserAccount(Base):
+    __tablename__ = "user_accounts"
+
+    user_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    username = Column(String, nullable=False, unique=True, index=True)
+    password_hash = Column(String, nullable=False)
+    role = Column(String, nullable=False, default="VIEWER")
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

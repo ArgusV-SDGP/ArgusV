@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import config as cfg
+from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
 from db.connection import get_db
 from db.models import Camera
 
@@ -68,13 +69,20 @@ def _publish_camera_update(camera_id: str, action: str) -> None:
 
 
 @router.get("")
-def list_cameras(db: Session = Depends(get_db)):
+def list_cameras(
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
+):
     cams = db.query(Camera).order_by(Camera.camera_id.asc()).all()
     return [_serialize_camera(c) for c in cams]
 
 
 @router.get("/{camera_id}")
-def get_camera(camera_id: str, db: Session = Depends(get_db)):
+def get_camera(
+    camera_id: str,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
+):
     cam = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not cam:
         raise HTTPException(404, "Camera not found")
@@ -82,7 +90,11 @@ def get_camera(camera_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("", status_code=201)
-def create_camera(payload: CameraCreate, db: Session = Depends(get_db)):
+def create_camera(
+    payload: CameraCreate,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR)),
+):
     exists = db.query(Camera).filter(Camera.camera_id == payload.camera_id).first()
     if exists:
         raise HTTPException(409, "camera_id already exists")
@@ -112,7 +124,12 @@ def create_camera(payload: CameraCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{camera_id}")
-def update_camera(camera_id: str, payload: CameraPatch, db: Session = Depends(get_db)):
+def update_camera(
+    camera_id: str,
+    payload: CameraPatch,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR)),
+):
     cam = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not cam:
         raise HTTPException(404, "Camera not found")
@@ -134,7 +151,11 @@ def update_camera(camera_id: str, payload: CameraPatch, db: Session = Depends(ge
 
 
 @router.delete("/{camera_id}", status_code=204)
-def delete_camera(camera_id: str, db: Session = Depends(get_db)):
+def delete_camera(
+    camera_id: str,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN)),
+):
     cam = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not cam:
         raise HTTPException(404, "Camera not found")

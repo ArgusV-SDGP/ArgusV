@@ -878,7 +878,7 @@
   </header>
 
   <nav
-    style="display:flex;gap:4px;padding:8px 28px;border-bottom:1px solid rgba(255,255,255,0.07);background:rgba(10,12,16,0.95)">
+    style="display:flex;gap:4px;padding:8px 28px;border-bottom:1px solid rgba(255,255,255,0.07);background:rgba(10,12,16,0.95);align-items:center;">
     <style>
       .nav-link {
         font-size: 12px;
@@ -904,6 +904,9 @@
     <a class="nav-link" href="/static/recordings.html">📹 Recordings</a>
     <a class="nav-link" href="/static/incidents.html">🚨 Incidents</a>
     <a class="nav-link" href="/static/zones.html">📐 Zones</a>
+    <span id="auth-user" style="margin-left:auto;color:#94a3b8;font-size:12px;"></span>
+    <button id="logoutBtn"
+      style="border:none;background:#1f2937;color:#e2e8f0;border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;">Logout</button>
   </nav>
 
   <!-- ── View Toggle + Content ── -->
@@ -1013,6 +1016,7 @@
   </aside>
   </main>
 
+  <script src="/static/auth.js"></script>
   <script>
     // ── State ─────────────────────────────────────────────────────────────────
     const events = new Map();   // event_id → card data
@@ -1237,7 +1241,7 @@
     let cameraList = [];
     async function loadCameras() {
       try {
-        const res = await fetch('/api/cameras');
+        const res = await window.ArgusAuth.authFetch('/api/cameras');
         const cams = await res.json();
         cameraList = cams;
         document.getElementById('cam-count').textContent = cams.length;
@@ -1455,9 +1459,17 @@
     }
 
     // ── Boot ──────────────────────────────────────────────────────────────────
-    connect();
-    loadCameras().then(() => buildCameraGrid(cameraList));
-    setInterval(loadCameras, 30000);
+    async function boot() {
+      const me = await window.ArgusAuth.requireAuth();
+      if (!me) return;
+      document.getElementById('auth-user').textContent = `${me.username} (${me.role})`;
+      document.getElementById('logoutBtn').addEventListener('click', () => window.ArgusAuth.logout());
+      connect();
+      loadCameras().then(() => buildCameraGrid(cameraList));
+      setInterval(loadCameras, 30000);
+    }
+
+    boot();
   </script>
 </body>
 

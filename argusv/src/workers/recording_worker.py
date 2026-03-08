@@ -184,25 +184,26 @@ class SegmentWatcher:
         logger.info(f"[SegmentWatcher:{self.camera_id}] Segment complete: {dest.name} ({size//1024}KB)")
 
     def _write_db(self, local_path: str, start_dt: datetime, end_dt: datetime, size: int):
-        # TODO REC-04: implement DB write
-        # from db.connection import get_db_sync
-        # from db.models import Segment
-        # import uuid
-        # db = get_db_sync()
-        # try:
-        #     seg = Segment(
-        #         camera_id    = self.camera_id,
-        #         start_time   = start_dt,
-        #         end_time     = end_dt,
-        #         duration_sec = cfg.SEGMENT_DURATION_SEC,
-        #         minio_path   = local_path,   # reuse minio_path for local path
-        #         size_bytes   = size,
-        #     )
-        #     db.add(seg)
-        #     db.commit()
-        # finally:
-        #     db.close()
-        logger.debug(f"[SegmentWatcher] TODO REC-04: write segment to DB — {local_path}")
+        from db.connection import get_db_sync
+        from db.models import Segment
+        db = get_db_sync()
+        try:
+            seg = Segment(
+                camera_id    = self.camera_id,
+                start_time   = start_dt,
+                end_time     = end_dt,
+                duration_sec = cfg.SEGMENT_DURATION_SEC,
+                minio_path   = local_path,   # reuse minio_path for local path
+                size_bytes   = size,
+            )
+            db.add(seg)
+            db.commit()
+            logger.debug(f"[SegmentWatcher] Inserted Segment DB row for — {local_path}")
+        except Exception as e:
+            logger.error(f"[SegmentWatcher] Failed to write DB segment: {e}")
+            db.rollback()
+        finally:
+            db.close()
 
 
 class CameraRecorder:

@@ -110,3 +110,38 @@ MQTT_PASS = os.getenv("MQTT_PASS", "")
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8000"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+
+
+
+# ── Authentication / Authorization ─────────────────────────────────────────── #
+
+JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
+JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
+JWT_REFRESH_EXPIRE_MINUTES = int(os.getenv("JWT_REFRESH_EXPIRE_MINUTES", "1440"))
+
+AUTH_USERS_JSON = os.getenv(
+    "AUTH_USERS_JSON",
+    '{"admin":{"password":"admin123","role":"ADMIN"},"operator":{"password":"operator123","role":"OPERATOR"}}',
+)
+API_KEYS_JSON = os.getenv(
+    "API_KEYS_JSON",
+    '{"local-dev-api-key":{"subject":"service-client","role":"SERVICE"}}',
+)
+
+PROXY_AUTH_ENABLED = os.getenv("PROXY_AUTH_ENABLED", "false").lower() == "true"
+PROXY_AUTH_USER_HEADER = os.getenv("PROXY_AUTH_USER_HEADER", "x-forwarded-user")
+PROXY_AUTH_ROLE_HEADER = os.getenv("PROXY_AUTH_ROLE_HEADER", "x-forwarded-role")
+
+try:
+    AUTH_USERS = _json.loads(AUTH_USERS_JSON) if AUTH_USERS_JSON else {}
+    if not isinstance(AUTH_USERS, dict):
+        AUTH_USERS = {}
+except Exception:
+    AUTH_USERS = {}
+
+try:
+    API_KEYS = _json.loads(API_KEYS_JSON) if API_KEYS_JSON else {}
+    if not isinstance(API_KEYS, dict):
+        API_KEYS = {}
+except Exception:
+    API_KEYS = {}
