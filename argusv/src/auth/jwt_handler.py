@@ -18,6 +18,7 @@ BRAYAN NOTE: Auth is fully stubbed — nothing works yet.
 import os
 from datetime import datetime, timedelta
 from typing import Optional
+import jwt
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
@@ -29,13 +30,20 @@ security = HTTPBearer(auto_error=False)
 
 
 def create_access_token(data: dict, expires_minutes: int = TOKEN_EXPIRE) -> str:
-    # TODO AUTH-01: implement with python-jose or PyJWT
-    raise NotImplementedError("TODO AUTH-01: implement JWT creation")
+    payload = data.copy()
+    payload["exp"] = datetime.utcnow() + timedelta(minutes=expires_minutes)
+    payload["iat"] = datetime.utcnow()
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def verify_token(token: str) -> dict:
-    # TODO AUTH-01: decode + verify JWT
-    raise NotImplementedError("TODO AUTH-01: implement JWT verification")
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
 
 async def get_current_user(
