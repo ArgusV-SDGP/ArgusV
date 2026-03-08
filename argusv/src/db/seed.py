@@ -2,6 +2,7 @@
 db/seed.py — Seed default data for development
 Task: DB-07
 """
+
 # TODO DB-07: seed default zone + test camera
 
 import logging
@@ -11,7 +12,6 @@ from db.connection import get_db_sync
 import uuid
 
 logger = logging.getLogger("db.seed")
-
 
 def seed_dev_data():
     """Insert sensible defaults for local development."""

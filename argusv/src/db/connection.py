@@ -6,7 +6,7 @@ async (for pipeline workers) DB sessions.
 """
 
 from contextlib import asynccontextmanager, contextmanager
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, Session
 
@@ -49,4 +49,6 @@ async def get_db_session():
 
 def create_tables():
     """Create all tables if they don't exist (dev convenience, use Alembic in prod)."""
+    with _sync_engine.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
     Base.metadata.create_all(_sync_engine)

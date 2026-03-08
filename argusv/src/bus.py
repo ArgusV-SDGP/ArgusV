@@ -24,6 +24,10 @@ class EventBus:
     actions        : asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=500))
     alerts_ws      : asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=2000))
 
+    rag_indexing   : asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=500))
+    snapshots      : asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=1000))
+    clips          : asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=200))
+
     def stats(self) -> dict:
         return {
             "raw_detections" : self.raw_detections.qsize(),
@@ -31,6 +35,9 @@ class EventBus:
             "vlm_results"    : self.vlm_results.qsize(),
             "actions"        : self.actions.qsize(),
             "alerts_ws"      : self.alerts_ws.qsize(),
+            "rag_indexing"   : self.rag_indexing.qsize(),
+            "snapshots"      : self.snapshots.qsize(),
+            "clips"          : self.clips.qsize(),
         }
 
 bus = EventBus()
