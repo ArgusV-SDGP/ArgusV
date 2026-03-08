@@ -191,6 +191,9 @@ cython_debug/
 # Video files
 *.mp4
 
+# Task flow docs (personal)
+docs/DEV-5_Task_Flow.md
+
 # Ruff stuff:
 .ruff_cache/
 
