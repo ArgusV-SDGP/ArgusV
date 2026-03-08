@@ -28,3 +28,6 @@ dependencies = [
     "python-dotenv",
     "pydantic",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
