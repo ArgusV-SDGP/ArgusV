@@ -5,14 +5,14 @@
 services:
 
   postgres:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
     container_name: argus-postgres-dev
     environment:
       POSTGRES_USER: argus
       POSTGRES_PASSWORD: password
       POSTGRES_DB: argus_db
     ports:
-      - "5433:5432"
+      - "5434:5432"
     volumes:
       - postgres_dev_data:/var/lib/postgresql/data
     healthcheck:

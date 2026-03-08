@@ -56,7 +56,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
     container_name: argus-postgres
     environment:
       POSTGRES_USER: argus
