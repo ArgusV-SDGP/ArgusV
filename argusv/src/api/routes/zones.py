@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from typing import Any, Optional
 
 import config as cfg
-from auth.jwt_handler import get_current_user
+from auth.jwt_handler import get_current_user, require_role, Role
 from db.connection import get_db
 from db.models import Zone
 
@@ -78,7 +78,7 @@ def list_zones(active_only: bool = Query(False), db: Session = Depends(get_db)):
     return [_parse_zone(z) for z in zones]
 
 
-@router.post("/", status_code=201)
+@router.post("/", status_code=201, dependencies=[Depends(require_role(Role.ADMIN))])
 def create_zone(payload: ZoneCreate, db: Session = Depends(get_db)):
     _validate_polygon(payload.polygon_coords)
     zone = Zone(
@@ -96,7 +96,7 @@ def create_zone(payload: ZoneCreate, db: Session = Depends(get_db)):
     return _parse_zone(zone)
 
 
-@router.put("/{zone_id}")
+@router.put("/{zone_id}", dependencies=[Depends(require_role(Role.ADMIN))])
 def update_zone(zone_id: str, payload: ZoneCreate, db: Session = Depends(get_db)):
     _validate_polygon(payload.polygon_coords)
     try:
@@ -118,7 +118,7 @@ def update_zone(zone_id: str, payload: ZoneCreate, db: Session = Depends(get_db)
     return _parse_zone(zone)
 
 
-@router.delete("/{zone_id}", status_code=204)
+@router.delete("/{zone_id}", status_code=204, dependencies=[Depends(require_role(Role.ADMIN))])
 def delete_zone(zone_id: str, db: Session = Depends(get_db)):
     try:
         zid = uuid.UUID(zone_id)

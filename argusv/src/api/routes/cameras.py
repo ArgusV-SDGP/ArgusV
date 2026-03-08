@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import config as cfg
-from auth.jwt_handler import get_current_user
+from auth.jwt_handler import get_current_user, require_role, Role
 from db.connection import get_db
 from db.models import Camera
 
@@ -82,7 +82,7 @@ def get_camera(camera_id: str, db: Session = Depends(get_db)):
     return _serialize_camera(cam)
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, dependencies=[Depends(require_role(Role.ADMIN))])
 def create_camera(payload: CameraCreate, db: Session = Depends(get_db)):
     exists = db.query(Camera).filter(Camera.camera_id == payload.camera_id).first()
     if exists:
@@ -112,7 +112,7 @@ def create_camera(payload: CameraCreate, db: Session = Depends(get_db)):
     return _serialize_camera(cam)
 
 
-@router.put("/{camera_id}")
+@router.put("/{camera_id}", dependencies=[Depends(require_role(Role.ADMIN))])
 def update_camera(camera_id: str, payload: CameraPatch, db: Session = Depends(get_db)):
     cam = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not cam:
@@ -134,7 +134,7 @@ def update_camera(camera_id: str, payload: CameraPatch, db: Session = Depends(ge
     return _serialize_camera(cam)
 
 
-@router.delete("/{camera_id}", status_code=204)
+@router.delete("/{camera_id}", status_code=204, dependencies=[Depends(require_role(Role.ADMIN))])
 def delete_camera(camera_id: str, db: Session = Depends(get_db)):
     cam = db.query(Camera).filter(Camera.camera_id == camera_id).first()
     if not cam:

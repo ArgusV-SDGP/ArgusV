@@ -18,10 +18,17 @@ BRAYAN NOTE: Auth is fully stubbed — nothing works yet.
 import hmac
 import os
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Optional
 import jwt
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+
+class Role(str, Enum):
+    ADMIN = "ADMIN"
+    VIEWER = "VIEWER"
+
 
 SECRET_KEY   = os.getenv("JWT_SECRET", "change-me-in-production")
 ALGORITHM    = "HS256"
@@ -71,4 +78,13 @@ async def get_current_user(
 
     # Fall back to JWT
     payload = verify_token(token)
-    return {"user": payload.get("sub", "unknown"), "role": payload.get("role", "USER")}
+    return {"user": payload.get("sub", "unknown"), "role": payload.get("role", "VIEWER")}
+
+
+def require_role(*allowed_roles: Role):
+    """Dependency factory — use as Depends(require_role(Role.ADMIN))."""
+    async def _check(user: dict = Depends(get_current_user)):
+        if user.get("role") not in [r.value for r in allowed_roles]:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+        return user
+    return _check
