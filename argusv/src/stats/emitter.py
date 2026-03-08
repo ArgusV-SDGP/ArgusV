@@ -22,7 +22,7 @@ import os
 import time
 import psutil
 from pathlib import Path
-from typing import dict
+from typing import Dict
 
 logger = logging.getLogger("stats")
 
