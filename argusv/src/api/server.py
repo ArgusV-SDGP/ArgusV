@@ -24,6 +24,7 @@ from api.routes.cameras import router as cameras_router
 from api.routes.zones import router as zones_router
 from api.routes.incidents import router as incidents_router
 from api.routes.recordings import router as recordings_router
+from api.routes.auth import router as auth_router
 from api.routes.configuration import router as configuration_router
 from workers.edge_worker import start_cameras, stop_cameras, cameras_health
 from workers.pipeline_worker import (
@@ -75,6 +76,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ArgusV", version="1.0", lifespan=lifespan)
+app.include_router(auth_router)
 app.include_router(cameras_router)
 app.include_router(zones_router)
 app.include_router(incidents_router)
