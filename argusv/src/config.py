@@ -15,7 +15,7 @@ load_dotenv(_env_path, override=False)
 
 # ── Infrastructure ──────────────────────────────────────────────────────────── #
 
-POSTGRES_URL   = os.getenv("POSTGRES_URL",   "postgresql://argus:password@postgres:5432/argus_db")
+POSTGRES_URL   = os.getenv("POSTGRES_URL",   "postgresql://argus:password@localhost:5432/argus_db")
 REDIS_URL      = os.getenv("REDIS_URL",      "redis://redis:6379/0")
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
 MINIO_KEY      = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
