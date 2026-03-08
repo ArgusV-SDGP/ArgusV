@@ -1,64 +1,45 @@
 """
-embeddings/embeddings.py — CLIP semantic embeddings
+embeddings/embeddings.py — Minimal Local Embedder
 -----------------------------------------------------
-Frigate equivalent: frigate/embeddings/embeddings.py
-
-Generates CLIP image embeddings for semantic search.
-Allows queries like "person with red jacket" to find
-matching recordings without keywords.
-
-TODO VLM-08: implement
+ArgusV implementation using sentence-transformers to convert text
+into a 384-dimensional vector suitable for Postgres (pgvector).
 """
 
 import logging
-import numpy as np
 from typing import Optional
 
 logger = logging.getLogger("embeddings")
 
-
 class EmbeddingManager:
     """
-    Generates and stores CLIP embeddings for detection frames.
-    Frigate stores these in a vector DB (SQLite-vec / Qdrant).
-    ArgusV can use pgvector (Postgres extension) or Qdrant.
-
-    TODO VLM-08:
-      1. Install clip / open-clip-torch
-      2. Generate embedding on each START detection
-      3. Store in pgvector column on Detection table
-      4. Expose GET /api/search?q=... endpoint using cosine similarity
+    RAG Embedder using Sentence-Transformers underneath.
+    This creates floating-point arrays out of strings.
     """
-
     def __init__(self):
         self._model = None
 
-    def _load_model(self):
-        """Lazy-load CLIP model."""
-        # TODO VLM-08:
-        # import open_clip
-        # self._model, _, self._preprocess = open_clip.create_model_and_transforms(
-        #     "ViT-B-32", pretrained="openai"
-        # )
-        raise NotImplementedError("TODO VLM-08: load CLIP model")
+    def _ensure_model(self):
+        if not self._model:
+            logger.info("[Embeddings] Loading sentence-transformer model for RAG...")
+            from sentence_transformers import SentenceTransformer
+            # all-MiniLM-L6-v2 produces a fast 384-dimension vector ideal for Postgres
+            self._model = SentenceTransformer('all-MiniLM-L6-v2') 
+            logger.info("[Embeddings] Model loaded successfully.")
 
-    async def embed_frame(self, frame_b64: str) -> Optional[np.ndarray]:
+    async def embed_text(self, text: str) -> Optional[list[float]]:
         """
-        Generate CLIP embedding for a base64 frame.
-        Returns 512-dim float32 vector or None.
+        Takes the text description from the GenAI VLM and returns a vector array.
         """
-        # TODO VLM-08: implement
-        return None
+        if not text:
+            return None
 
-    async def embed_text(self, query: str) -> Optional[np.ndarray]:
-        """Generate CLIP embedding for a text query."""
-        # TODO VLM-08: implement
-        return None
+        self._ensure_model()
+        try:
+            vector = self._model.encode(text)
+            return vector.tolist()
+        except Exception as e:
+            logger.error(f"[Embeddings] Failed to embed text: {e}")
+            return None
 
-    async def search(self, query: str, camera_id: str = None,
-                     limit: int = 20) -> list[dict]:
-        """
-        Semantic search: find detections matching text query.
-        TODO VLM-08: cosine similarity against pgvector
-        """
-        raise NotImplementedError("TODO VLM-08: semantic search")
+# Singleton instance
+vector_db = EmbeddingManager()

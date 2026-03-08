@@ -25,6 +25,7 @@ from api.routes.zones import router as zones_router
 from api.routes.incidents import router as incidents_router
 from api.routes.recordings import router as recordings_router
 from api.routes.configuration import router as configuration_router
+from api.routes.rag import router as rag_router
 from workers.edge_worker import start_cameras, stop_cameras, cameras_health
 from workers.pipeline_worker import (
     stream_ingestion_worker,
@@ -32,6 +33,9 @@ from workers.pipeline_worker import (
     decision_engine_worker,
     notification_worker,
 )
+from workers.rag_worker import rag_semantic_worker
+from workers.snapshot_worker import snapshot_worker, clip_generation_worker
+from workers.cleanup_worker import cleanup_worker
 
 logger = logging.getLogger("api.server")
 
@@ -57,6 +61,10 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(vlm_inference_worker(),     name="vlm-inference"),
         asyncio.create_task(decision_engine_worker(),   name="decision-engine"),
         asyncio.create_task(notification_worker(),      name="notification"),
+        asyncio.create_task(rag_semantic_worker(),      name="rag-semantic"),
+        asyncio.create_task(snapshot_worker(),          name="snapshot-worker"),
+        asyncio.create_task(clip_generation_worker(),   name="clip-generator"),
+        asyncio.create_task(cleanup_worker(),           name="cleanup-worker"),
         asyncio.create_task(manager.fan_out_loop(bus.alerts_ws), name="ws-fanout"),
     ]
 
@@ -80,6 +88,7 @@ app.include_router(zones_router)
 app.include_router(incidents_router)
 app.include_router(recordings_router)
 app.include_router(configuration_router)
+app.include_router(rag_router)
 
 # ── Mount static files ────────────────────────────────────────────────────────
 if STATIC_DIR.exists():
