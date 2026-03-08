@@ -12,10 +12,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
+from auth.jwt_handler import get_current_user
 from db.connection import get_db
 from db.models import Detection, Incident, Segment
 
-router = APIRouter(tags=["recordings"])
+router = APIRouter(tags=["recordings"], dependencies=[Depends(get_current_user)])
 
 
 def _serialize_segment(seg: Segment) -> dict[str, Any]:

@@ -12,10 +12,11 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import config as cfg
+from auth.jwt_handler import get_current_user
 from db.connection import get_db
 from db.models import Camera
 
-router = APIRouter(prefix="/api/cameras", tags=["cameras"])
+router = APIRouter(prefix="/api/cameras", tags=["cameras"], dependencies=[Depends(get_current_user)])
 logger = logging.getLogger("api.cameras")
 
 

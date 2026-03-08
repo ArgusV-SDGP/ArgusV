@@ -15,10 +15,11 @@ from pydantic import BaseModel
 from typing import Any, Optional
 
 import config as cfg
+from auth.jwt_handler import get_current_user
 from db.connection import get_db
 from db.models import Zone
 
-router = APIRouter(prefix="/api/zones", tags=["zones"])
+router = APIRouter(prefix="/api/zones", tags=["zones"], dependencies=[Depends(get_current_user)])
 logger = logging.getLogger("api.zones")
 
 

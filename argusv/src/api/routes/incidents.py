@@ -17,10 +17,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
+from auth.jwt_handler import get_current_user
 from db.connection import get_db
 from db.models import Incident
 
-router = APIRouter(prefix="/api/incidents", tags=["incidents"])
+router = APIRouter(prefix="/api/incidents", tags=["incidents"], dependencies=[Depends(get_current_user)])
 
 
 class IncidentPatch(BaseModel):
