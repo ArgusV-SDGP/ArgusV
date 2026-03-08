@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import config as cfg
-from auth.jwt_handler import get_current_user
+from auth.jwt_handler import get_current_user, require_role, Role
 from db.connection import get_db
 from db.models import NotificationRule, RagConfig
 
@@ -95,7 +95,7 @@ def get_runtime_config(db: Session = Depends(get_db)):
     return current
 
 
-@router.put("/api/config/runtime")
+@router.put("/api/config/runtime", dependencies=[Depends(require_role(Role.ADMIN))])
 def update_runtime_config(payload: RuntimeConfigPatch, db: Session = Depends(get_db)):
     updates = payload.dict(exclude_unset=True)
     for key, value in updates.items():
@@ -110,7 +110,7 @@ def update_runtime_config(payload: RuntimeConfigPatch, db: Session = Depends(get
     return {"updated": list(updates.keys()), "count": len(updates)}
 
 
-@router.post("/api/config/apply")
+@router.post("/api/config/apply", dependencies=[Depends(require_role(Role.ADMIN))])
 def apply_config():
     _publish_config_update("CONFIG_APPLY")
     return {"status": "ok", "message": "config apply signal published"}
@@ -131,7 +131,7 @@ def list_notification_rules(db: Session = Depends(get_db)):
     ]
 
 
-@router.post("/api/notification-rules", status_code=201)
+@router.post("/api/notification-rules", status_code=201, dependencies=[Depends(require_role(Role.ADMIN))])
 def create_notification_rule(payload: NotificationRuleCreate, db: Session = Depends(get_db)):
     row = NotificationRule(
         zone_id=payload.zone_id,
@@ -152,7 +152,7 @@ def create_notification_rule(payload: NotificationRuleCreate, db: Session = Depe
     }
 
 
-@router.put("/api/notification-rules/{rule_id}")
+@router.put("/api/notification-rules/{rule_id}", dependencies=[Depends(require_role(Role.ADMIN))])
 def update_notification_rule(rule_id: str, payload: NotificationRuleCreate, db: Session = Depends(get_db)):
     import uuid
 
@@ -180,7 +180,7 @@ def update_notification_rule(rule_id: str, payload: NotificationRuleCreate, db: 
     }
 
 
-@router.delete("/api/notification-rules/{rule_id}", status_code=204)
+@router.delete("/api/notification-rules/{rule_id}", status_code=204, dependencies=[Depends(require_role(Role.ADMIN))])
 def delete_notification_rule(rule_id: str, db: Session = Depends(get_db)):
     import uuid
 
