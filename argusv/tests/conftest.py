@@ -163,6 +163,29 @@ def mock_db():
 
 
 @pytest.fixture
+def mock_redis():
+    """Mock redis client — prevents real Redis connection in tests."""
+    r = MagicMock()
+    r.get.return_value = None
+    r.set.return_value = True
+    r.publish.return_value = 1
+    r.exists.return_value = True
+    r.delete.return_value = 1
+    return r
+
+
+@pytest.fixture
+def mock_vlm():
+    """Mock VLM response — prevents real OpenAI calls in tests."""
+    return AsyncMock(return_value={
+        "threat_level": "LOW",
+        "is_threat": False,
+        "summary": "Mocked VLM response — no threat detected.",
+        "recommended_action": "NONE",
+    })
+
+
+@pytest.fixture
 def sample_detection_event():
     return {
         "event_id":     "test-abc-123",
