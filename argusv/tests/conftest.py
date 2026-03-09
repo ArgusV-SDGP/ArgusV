@@ -58,6 +58,40 @@ def mock_bus():
     return EventBus()
 
 
+# ── ORM model fixtures ────────────────────────────────────────────────────
+
+import uuid
+from datetime import datetime
+from db.models import Camera, Zone, Segment, Incident, Detection, Rule
+
+
+@pytest.fixture
+def sample_camera(db_session):
+    cam = Camera(
+        camera_id="cam-test-01",
+        name="Test Camera",
+        rtsp_url="rtsp://localhost:8554/test",
+        status="online",
+    )
+    db_session.add(cam)
+    db_session.commit()
+    return cam
+
+
+@pytest.fixture
+def sample_zone(db_session):
+    zone = Zone(
+        zone_id=uuid.uuid4(),
+        name="Test Zone",
+        polygon_coords=[[0, 0], [1, 0], [1, 1], [0, 1]],
+        zone_type="intrusion",
+        active=True,
+    )
+    db_session.add(zone)
+    db_session.commit()
+    return zone
+
+
 @pytest.fixture
 def mock_db():
     """Mock SQLAlchemy session."""
