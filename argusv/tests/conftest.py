@@ -93,6 +93,37 @@ def sample_zone(db_session):
 
 
 @pytest.fixture
+def sample_segment(db_session, sample_camera):
+    seg = Segment(
+        segment_id=uuid.uuid4(),
+        camera_id=sample_camera.camera_id,
+        start_time=datetime.utcnow(),
+        end_time=datetime.utcnow(),
+        duration_sec=10.0,
+        minio_path="/recordings/test-segment.mp4",
+    )
+    db_session.add(seg)
+    db_session.commit()
+    return seg
+
+
+@pytest.fixture
+def sample_incident(db_session, sample_camera):
+    inc = Incident(
+        incident_id=uuid.uuid4(),
+        camera_id=sample_camera.camera_id,
+        object_class="person",
+        threat_level="HIGH",
+        summary="Test incident — suspicious loitering detected",
+        status="OPEN",
+        detected_at=datetime.utcnow(),
+    )
+    db_session.add(inc)
+    db_session.commit()
+    return inc
+
+
+@pytest.fixture
 def mock_db():
     """Mock SQLAlchemy session."""
     return MagicMock()
