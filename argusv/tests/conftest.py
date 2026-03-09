@@ -124,6 +124,39 @@ def sample_incident(db_session, sample_camera):
 
 
 @pytest.fixture
+def sample_detection(db_session, sample_camera, sample_incident):
+    det = Detection(
+        detection_id=uuid.uuid4(),
+        event_id="evt-test-01",
+        camera_id=sample_camera.camera_id,
+        incident_id=sample_incident.incident_id,
+        detected_at=datetime.utcnow(),
+        object_class="person",
+        confidence=0.92,
+        is_threat=True,
+        threat_level="HIGH",
+    )
+    db_session.add(det)
+    db_session.commit()
+    return det
+
+
+@pytest.fixture
+def sample_rule(db_session, sample_zone):
+    rule = Rule(
+        rule_id=uuid.uuid4(),
+        zone_id=sample_zone.zone_id,
+        trigger_type="intrusion",
+        severity="HIGH",
+        action_config={"notify": True},
+        is_active=True,
+    )
+    db_session.add(rule)
+    db_session.commit()
+    return rule
+
+
+@pytest.fixture
 def mock_db():
     """Mock SQLAlchemy session."""
     return MagicMock()
