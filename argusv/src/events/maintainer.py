@@ -44,6 +44,7 @@ class EventMaintainer:
                 "last_seen":      time.time(),
                 "frame_count":    1,
                 "max_confidence": event.get("confidence", 0),
+                "best_frame":     event.get("frame"), # NEW: Capture first frame
             }
             logger.debug(f"[Events] START track={track_id} class={event.get('object_class')}")
 
@@ -52,9 +53,12 @@ class EventMaintainer:
                 ev = self._open_events[track_id]
                 ev["last_seen"]      = time.time()
                 ev["frame_count"]   += 1
-                ev["max_confidence"] = max(ev["max_confidence"], event.get("confidence", 0))
-                ev["dwell_sec"]      = event.get("dwell_sec", 0)
                 ev["event_type"]     = event_type
+                
+                # WATCH-07: Update best frame if confidence is higher
+                if event.get("confidence", 0) > ev["max_confidence"]:
+                    ev["max_confidence"] = event["confidence"]
+                    ev["best_frame"]     = event.get("frame")
 
         elif event_type == "END":
             ev = self._open_events.pop(track_id, None)
@@ -103,6 +107,17 @@ class EventMaintainer:
                 if det:
                     det.segment_id = segments[0].segment_id
                     det.thumbnail_url = f"/api/incidents/{event_id}/thumbnail.jpg"
+                    
+                    # WATCH-07: Save thumbnail to disk
+                    best_frame = ev.get("best_frame")
+                    if best_frame:
+                        import base64
+                        import os
+                        thumb_path = f"recordings/thumbnails/{event_id}.jpg"
+                        os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
+                        with open(thumb_path, "wb") as f:
+                            f.write(base64.b64decode(best_frame))
+                            
             await db.commit()
 
         # REC-13: trigger clip generation for this event

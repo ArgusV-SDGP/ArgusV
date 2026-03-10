@@ -15,7 +15,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
@@ -35,6 +35,8 @@ from workers.pipeline_worker import (
     decision_engine_worker,
     notification_worker,
 )
+from workers.watchdog_worker import watchdog_worker
+from stats.emitter import get_stats
 from workers.rag_worker import rag_semantic_worker
 from workers.snapshot_worker import snapshot_worker, clip_generation_worker
 from workers.cleanup_worker import cleanup_worker
@@ -63,6 +65,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(vlm_inference_worker(),     name="vlm-inference"),
         asyncio.create_task(decision_engine_worker(),   name="decision-engine"),
         asyncio.create_task(notification_worker(),      name="notification"),
+        asyncio.create_task(watchdog_worker(),          name="watchdog"),
         asyncio.create_task(rag_semantic_worker(),      name="rag-semantic"),
         asyncio.create_task(snapshot_worker(),          name="snapshot-worker"),
         asyncio.create_task(clip_generation_worker(),   name="clip-generator"),
@@ -134,6 +137,30 @@ async def health():
         "bus_queue_sizes": bus.stats(),
         "uptime_sec": round(time.time() - _START_TIME, 1),
     }
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Expose Prometheus formatted metrics."""
+    s = get_stats()
+    lines = [
+        f'argusv_cpu_pct {s["cpu_pct"]}',
+        f'argusv_memory_rss_mb {s["rss_mb"]}',
+        f'argusv_detections_total {s["detections_total"]}',
+        f'argusv_vlm_calls_total {s["vlm_calls"]}',
+        f'argusv_uptime_seconds {s["uptime_sec"]}',
+    ]
+    # Add per-camera detections
+    for cam_id, count in s["detections_per_cam"].items():
+        lines.append(f'argusv_camera_detections_total{{camera_id="{cam_id}"}} {count}')
+        
+    return PlainTextResponse("\n".join(lines) + "\n")
+
+@app.get("/api/birdseye")
+async def birdseye_view():
+    """Return the latest composite view of all cameras."""
+    from output.birdseye import get_birdseye_composite
+    from fastapi import Response
+    return Response(content=get_birdseye_composite(), media_type="image/jpeg")
 
 _START_TIME = time.time()
 
