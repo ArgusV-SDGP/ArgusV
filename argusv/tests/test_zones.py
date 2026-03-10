@@ -19,6 +19,7 @@ def test_validate_polygon_removes_repeated_last_point():
 
 
 def test_validate_polygon_rejects_self_intersection():
+    # Bowtie/butterfly shape — self-intersecting, rejected with 400
     invalid = [[0.1, 0.1], [0.9, 0.9], [0.9, 0.1], [0.1, 0.9]]
     try:
         zones._validate_polygon(invalid)

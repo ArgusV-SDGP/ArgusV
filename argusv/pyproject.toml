@@ -14,6 +14,7 @@ dependencies = [
 
     # Database
     "sqlalchemy",
+    "pgvector",                 # Vector similarity search (pgvector SQLAlchemy type)
     "psycopg2-binary",          # PostgreSQL driver (sync)
     "asyncpg",                  # PostgreSQL driver (async pipeline workers)
     "alembic",                  # DB migrations
@@ -27,4 +28,11 @@ dependencies = [
     # Utilities
     "python-dotenv",
     "pydantic",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
 ]

@@ -83,6 +83,7 @@ class Zone(Base):
     dwell_threshold_sec = Column(Integer, default=30)
     active              = Column(Boolean, default=True)
     created_at          = Column(DateTime, default=datetime.utcnow)
+    updated_at          = Column(DateTime, nullable=True)
 
 
 class Rule(Base):
