@@ -446,7 +446,7 @@ class CameraWorker:
         if cfg.RECORDINGS_ENABLED:
             try:
                 from workers.recording_worker import CameraRecorder
-                self._recorder = CameraRecorder(camera_id, rtsp_url)
+                self._recorder = CameraRecorder(camera_id, rtsp_url, bus_queue, loop)
             except Exception as e:
                 logger.warning(f"[CameraWorker:{camera_id}] Recorder unavailable: {e}")
 

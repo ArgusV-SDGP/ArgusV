@@ -146,6 +146,7 @@ class Detection(Base):
     is_threat    = Column(Boolean, nullable=True)
     threat_level = Column(String,  nullable=True)
     vlm_summary  = Column(Text,    nullable=True)
+    embedding    = Column(JSONB,   nullable=True) # CLIP vector [512]
 
     camera_rel   = relationship("Camera",   back_populates="detections")
     segment      = relationship("Segment",  back_populates="detections")

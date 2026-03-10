@@ -150,28 +150,31 @@ class SegmentWatcher:
             self._seen[f.name] = size
 
     def _process_segment(self, ts_file: Path):
-        # TODO REC-03: Parse epoch timestamp from filename
-        # cam-01_1709150400.ts → start_time = datetime(2024,2,28,17,0,0)
+        """
+        Parses metadata from filename, moves file to storage,
+        registers in DB, and emits event to bus.
+        Tasks: REC-03, REC-04, REC-05
+        """
+        # cam-01_1709150400.ts → epoch start_time
         m = re.search(r"_(\d+)\.ts$", ts_file.name)
         if not m:
             logger.warning(f"[SegmentWatcher] Cannot parse timestamp from {ts_file.name}")
             return
 
         epoch_start = int(m.group(1))
+        # Use utcfomtimestamp for consistency with models.utcnow
         start_dt    = datetime.utcfromtimestamp(epoch_start)
         end_dt      = start_dt + timedelta(seconds=cfg.SEGMENT_DURATION_SEC)
         size        = ts_file.stat().st_size
 
-        # TODO REC-03: Move to recordings dir
+        # Move to permanent storage
         dest = self._out_dir / ts_file.name
         shutil.move(str(ts_file), str(dest))
-
         local_path = str(dest)
 
-        # TODO REC-04: Insert Segment row to DB
+        # Persistence & Events
         self._write_db(local_path, start_dt, end_dt, size)
 
-        # TODO REC-05: Put on bus
         seg_event = {
             "type":       "segment_registered",
             "camera_id":  self.camera_id,
@@ -181,28 +184,44 @@ class SegmentWatcher:
             "size_bytes": size,
         }
         asyncio.run_coroutine_threadsafe(self._bus_q.put(seg_event), self._loop)
-        logger.info(f"[SegmentWatcher:{self.camera_id}] Segment complete: {dest.name} ({size//1024}KB)")
+        logger.info(f"[SegmentWatcher:{self.camera_id}] Finalized: {dest.name} ({size//1024}KB)")
 
     def _write_db(self, local_path: str, start_dt: datetime, end_dt: datetime, size: int):
-        # TODO REC-04: implement DB write
-        # from db.connection import get_db_sync
-        # from db.models import Segment
-        # import uuid
-        # db = get_db_sync()
-        # try:
-        #     seg = Segment(
-        #         camera_id    = self.camera_id,
-        #         start_time   = start_dt,
-        #         end_time     = end_dt,
-        #         duration_sec = cfg.SEGMENT_DURATION_SEC,
-        #         minio_path   = local_path,   # reuse minio_path for local path
-        #         size_bytes   = size,
-        #     )
-        #     db.add(seg)
-        #     db.commit()
-        # finally:
-        #     db.close()
-        logger.debug(f"[SegmentWatcher] TODO REC-04: write segment to DB — {local_path}")
+        """
+        Inserts a record into the segments table for the completed file.
+        Task REC-04
+        """
+        from db.connection import get_db_sync
+        from db.models import Segment, Detection
+        
+        db = get_db_sync()
+        try:
+            # Task REC-07: Linkage Enrichment
+            # Check for detections in this time window to flag the segment
+            count = db.query(Detection).filter(
+                Detection.camera_id == self.camera_id,
+                Detection.detected_at >= start_dt,
+                Detection.detected_at <= end_dt
+            ).count()
+
+            seg = Segment(
+                camera_id       = self.camera_id,
+                start_time      = start_dt,
+                end_time        = end_dt,
+                duration_sec    = float(cfg.SEGMENT_DURATION_SEC),
+                minio_path      = local_path,   # Storing local path for now
+                size_bytes      = size,
+                has_detections  = (count > 0),
+                detection_count = count
+            )
+            db.add(seg)
+            db.commit()
+            logger.debug(f"[SegmentWatcher:{self.camera_id}] Segment DB record created: {local_path} (dets: {count})")
+        except Exception as e:
+            logger.error(f"[SegmentWatcher:{self.camera_id}] DB Write failed for {local_path}: {e}")
+            db.rollback()
+        finally:
+            db.close()
 
 
 class CameraRecorder:
