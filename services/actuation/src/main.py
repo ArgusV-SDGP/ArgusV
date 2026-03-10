@@ -59,6 +59,7 @@ async def consume_actions() -> None:
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
         group_id=CONSUMER_GROUP,
         auto_offset_reset="earliest",
+        enable_auto_commit=False,
     )
 
     await consumer.start()
@@ -73,6 +74,7 @@ async def consume_actions() -> None:
                     action.get("action_type"),
                 )
                 actuate(action)
+                await consumer.commit()
             except Exception as exc:
                 logger.error("Error processing action message: %s", exc)
     finally:

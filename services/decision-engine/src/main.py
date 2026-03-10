@@ -7,7 +7,7 @@ import uuid
 from contextlib import asynccontextmanager
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -77,6 +77,7 @@ async def consume_security_decisions(
                 action["action_id"],
                 action["action_type"],
             )
+            await consumer.commit()
         except Exception as exc:
             logger.error("Error processing security-decisions message: %s", exc)
 
@@ -88,11 +89,26 @@ async def lifespan(app: FastAPI):
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
         group_id=CONSUMER_GROUP,
         auto_offset_reset="earliest",
+        enable_auto_commit=False,
     )
     producer = AIOKafkaProducer(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
 
-    await consumer.start()
-    await producer.start()
+    consumer_started = False
+    producer_started = False
+    try:
+        await consumer.start()
+        consumer_started = True
+        await producer.start()
+        producer_started = True
+    except Exception:
+        logger.exception(
+            "Failed to start Kafka consumer/producer, shutting down partially-started clients."
+        )
+        if consumer_started:
+            await consumer.stop()
+        if producer_started:
+            await producer.stop()
+        raise
     logger.info(
         "Decision Engine: consuming '%s', producing '%s'",
         SECURITY_DECISIONS_TOPIC,
@@ -107,7 +123,8 @@ async def lifespan(app: FastAPI):
         try:
             await task
         except asyncio.CancelledError:
-            pass
+            # Expected during shutdown when cancelling background task.
+            logger.debug("Decision Engine consumer task cancelled during shutdown.")
         await consumer.stop()
         await producer.stop()
         logger.info("Decision Engine: Kafka consumer and producer stopped.")

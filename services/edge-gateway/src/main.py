@@ -99,12 +99,25 @@ def main() -> None:
 
     while True:
         event = build_detection_event(CAMERA_ID)
-        producer.produce(
-            RAW_DETECTIONS_TOPIC,
-            key=CAMERA_ID.encode(),
-            value=json.dumps(event).encode(),
-            callback=delivery_report,
-        )
+        try:
+            producer.produce(
+                RAW_DETECTIONS_TOPIC,
+                key=CAMERA_ID.encode(),
+                value=json.dumps(event).encode(),
+                callback=delivery_report,
+            )
+        except BufferError:
+            logger.warning(
+                "Producer queue full; flushing before retry for event %s",
+                event["event_id"],
+            )
+            producer.flush()
+            producer.produce(
+                RAW_DETECTIONS_TOPIC,
+                key=CAMERA_ID.encode(),
+                value=json.dumps(event).encode(),
+                callback=delivery_report,
+            )
         producer.poll(0)
         logger.info("Produced detection event: %s", event["event_id"])
         time.sleep(DETECTION_INTERVAL_SEC)
