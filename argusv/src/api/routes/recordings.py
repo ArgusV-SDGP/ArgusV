@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
+from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
 from db.connection import get_db
 from db.models import Detection, Incident, Segment
 
@@ -41,6 +42,7 @@ def list_segments(
     end: Optional[datetime] = Query(None),
     only_events: bool = Query(False),
     db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
 ):
     q = db.query(Segment).filter(Segment.camera_id == camera_id)
     if start:
@@ -59,6 +61,7 @@ def hls_playlist(
     start: datetime = Query(...),
     end: datetime = Query(...),
     db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
 ):
     segs = (
         db.query(Segment)
@@ -97,6 +100,7 @@ def detection_timeline(
     end: datetime = Query(...),
     threats_only: bool = Query(False),
     db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
 ):
     q = db.query(Detection).filter(
         Detection.camera_id == camera_id,
@@ -137,6 +141,7 @@ def incident_replay(
     incident_id: str,
     padding_sec: int = Query(15),
     db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
 ):
     try:
         iid = uuid.UUID(incident_id)

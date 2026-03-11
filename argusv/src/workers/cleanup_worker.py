@@ -26,61 +26,92 @@ LOCAL_RECORDINGS_DIR   = os.getenv("LOCAL_RECORDINGS_DIR", "/recordings")
 
 async def cleanup_worker():
     """Background task: runs cleanup every CLEANUP_INTERVAL_HOURS."""
-    logger.info(f"[Cleanup] Worker started — runs every {CLEANUP_INTERVAL_HOURS}h")
+    logger.info(f"🧹 [Cleanup] Worker started — runs every {CLEANUP_INTERVAL_HOURS}h")
     while True:
         try:
-            await _cleanup_segments()
-            await _auto_resolve_incidents()
+            # We run in a separate thread so sync DB calls don't block the loop
+            await asyncio.to_thread(_cleanup_segments)
+            await asyncio.to_thread(_auto_resolve_incidents)
+        except asyncio.CancelledError:
+            break
         except Exception as e:
             logger.error(f"[Cleanup] Error: {e}", exc_info=True)
+            
         await asyncio.sleep(CLEANUP_INTERVAL_HOURS * 3600)
 
 
-async def _cleanup_segments():
+def _cleanup_segments():
     """
     Delete segments older than retain_until from disk + DB.
-    Skips locked segments.
+    Skips locked segments (which are retained infinitely for incidents).
     Task REC-10, REC-11
     """
-    # TODO REC-10: implement
-    # from db.connection import get_db_sync
-    # from db.models import Segment
-    # cutoff = datetime.utcnow() - timedelta(days=cfg.RECORDINGS_RETAIN_DAYS)
-    # db = get_db_sync()
-    # try:
-    #     old = db.query(Segment).filter(
-    #         Segment.start_time < cutoff,
-    #         Segment.locked == False,
-    #     ).all()
-    #     for seg in old:
-    #         path = Path(seg.minio_path)
-    #         if path.exists():
-    #             path.unlink()
-    #         db.delete(seg)
-    #     db.commit()
-    #     logger.info(f"[Cleanup] Deleted {len(old)} old segments")
-    # finally:
-    #     db.close()
-    logger.debug("[Cleanup] TODO REC-10: segment cleanup (not yet implemented)")
+    from db.connection import get_db_sync
+    from db.models import Segment
+    
+    cutoff = datetime.utcnow() - timedelta(days=cfg.RECORDINGS_RETAIN_DAYS)
+    
+    db = get_db_sync()
+    try:
+        # Search for unlocked segments past the cutoff
+        old_segments = db.query(Segment).filter(
+            Segment.start_time < cutoff,
+            Segment.locked == False,
+        ).all()
+        
+        deleted_count = 0
+        for seg in old_segments:
+            # 1. Delete the physical .ts file from disk
+            path = Path(seg.minio_path)
+            if path.exists():
+                try:
+                    path.unlink()
+                except Exception as e:
+                    logger.error(f"[Cleanup] Could not delete disk file {path}: {e}")
+                    continue
+            
+            # 2. Delete the row from the database
+            db.delete(seg)
+            deleted_count += 1
+            
+        db.commit()
+        if deleted_count > 0:
+            logger.info(f"🧹 [Cleanup] Deleted {deleted_count} old unlocked video segments (older than {cfg.RECORDINGS_RETAIN_DAYS} days).")
+    except Exception as e:
+        logger.error(f"[Cleanup] Failed during segment cleanup: {e}", exc_info=True)
+        db.rollback()
+    finally:
+        db.close()
 
 
-async def _auto_resolve_incidents():
+def _auto_resolve_incidents():
     """
     Auto-resolve OPEN incidents older than INCIDENT_RESOLVE_DAYS.
     Task DB-09
     """
-    # TODO DB-09: implement
-    # from db.connection import get_db_sync
-    # from db.models import Incident
-    # cutoff = datetime.utcnow() - timedelta(days=INCIDENT_RESOLVE_DAYS)
-    # db = get_db_sync()
-    # try:
-    #     updated = db.query(Incident).filter(
-    #         Incident.status == "OPEN",
-    #         Incident.detected_at < cutoff,
-    #     ).update({"status": "RESOLVED", "resolved_at": datetime.utcnow()})
-    #     db.commit()
-    #     logger.info(f"[Cleanup] Auto-resolved {updated} old incidents")
-    # finally:
-    #     db.close()
-    logger.debug("[Cleanup] TODO DB-09: auto-resolve old incidents")
+    from db.connection import get_db_sync
+    from db.models import Incident
+    
+    cutoff = datetime.utcnow() - timedelta(days=INCIDENT_RESOLVE_DAYS)
+    
+    db = get_db_sync()
+    try:
+        incidents_to_close = db.query(Incident).filter(
+            Incident.status == "OPEN",
+            Incident.detected_at < cutoff,
+        ).all()
+        
+        count = 0
+        for inc in incidents_to_close:
+            inc.status = "RESOLVED"
+            inc.resolved_at = datetime.utcnow()
+            count += 1
+            
+        db.commit()
+        if count > 0:
+            logger.info(f"🧹 [Cleanup] Auto-resolved {count} stale incidents (older than {INCIDENT_RESOLVE_DAYS} days).")
+    except Exception as e:
+        logger.error(f"[Cleanup] Failed during incident resolution: {e}", exc_info=True)
+        db.rollback()
+    finally:
+        db.close()
