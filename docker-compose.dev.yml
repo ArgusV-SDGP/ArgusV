@@ -56,42 +56,44 @@ services:
     volumes:
       - minio_data:/data
 
-  qdrant:
-    image: qdrant/qdrant
-    ports:
-      - "6333:6333"
-    volumes:
-      - qdrant_data:/qdrant/storage
+  # qdrant:
+  #   image: qdrant/qdrant
+  #   ports:
+  #     - "6333:6333"
+  #   volumes:
+  #     - qdrant_data:/qdrant/storage
 
-  mosquitto:
-    image: eclipse-mosquitto
-    ports:
-      - "1883:1883"
-      - "9001:9001"
-    volumes:
-      - ./configs/mosquitto:/mosquitto/config
-      - mosquitto_data:/mosquitto/data
-      - mosquitto_log:/mosquitto/log
+  # mosquitto:
+  #   image: eclipse-mosquitto
+  #   ports:
+  #     - "1883:1883"
+  #     - "9001:9001"
+  #   volumes:
+  #     - ./configs/mosquitto:/mosquitto/config
+  #     - mosquitto_data:/mosquitto/data
+  #     - mosquitto_log:/mosquitto/log
 
   # ---------------------------------------------------------------------------
   # DEVELOPMENT SERVICES (Hot Reload & Mounts)
   # ---------------------------------------------------------------------------
 
-  edge-gateway:
-    build: ./services/edge-gateway
-    container_name: argus-edge-gateway
-    environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      RTSP_URLS: "rtsp://simulator:8554/stream"
-    volumes:
-      - ./services/edge-gateway:/app
-    command: python src/main.py
-    depends_on:
-      - kafka
+  # edge-gateway:
+  #   build: ./services/edge-gateway
+  #   container_name: argus-edge-gateway
+  #   environment:
+  #     KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  #     RTSP_URLS: "rtsp://simulator:8554/stream"
+  #   volumes:
+  #     - ./services/edge-gateway:/app
+  #   command: python src/main.py
+  #   depends_on:
+  #     - kafka
 
   stream-ingestion:
     build: ./services/stream-ingestion
     container_name: argus-stream-ingestion
+    ports:
+      - "8000:8000"
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       POSTGRES_URL: postgresql://argus:password@postgres:5432/argus_db
@@ -108,92 +110,92 @@ services:
       - redis
       - minio
 
-  vlm-inference:
-    build: ./services/vlm-inference
-    container_name: argus-vlm-inference
-    environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-    volumes:
-      - ./services/vlm-inference:/app
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
-    depends_on:
-      - kafka
+  # vlm-inference:
+  #   build: ./services/vlm-inference
+  #   container_name: argus-vlm-inference
+  #   environment:
+  #     KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  #     OPENAI_API_KEY: ${OPENAI_API_KEY}
+  #   volumes:
+  #     - ./services/vlm-inference:/app
+  #   command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+  #   depends_on:
+  #     - kafka
 
-  decision-engine:
-    build: ./services/decision-engine
-    container_name: argus-decision-engine
-    environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      POSTGRES_URL: postgresql://argus:password@postgres:5432/argus_db
-      REDIS_URL: redis://redis:6379/0
-      QDRANT_URL: http://qdrant:6333
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-    volumes:
-      - ./services/decision-engine:/app
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
-    depends_on:
-      - kafka
-      - postgres
-      - redis
-      - qdrant
+  # decision-engine:
+  #   build: ./services/decision-engine
+  #   container_name: argus-decision-engine
+  #   environment:
+  #     KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  #     POSTGRES_URL: postgresql://argus:password@postgres:5432/argus_db
+  #     REDIS_URL: redis://redis:6379/0
+  #     QDRANT_URL: http://qdrant:6333
+  #     OPENAI_API_KEY: ${OPENAI_API_KEY}
+  #   volumes:
+  #     - ./services/decision-engine:/app
+  #   command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+  #   depends_on:
+  #     - kafka
+  #     - postgres
+  #     - redis
+  #     - qdrant
 
-  rag-chat:
-    build: ./services/rag-chat
-    container_name: argus-rag-chat
-    ports:
-      - "8007:8000"
-    environment:
-      QDRANT_URL: http://qdrant:6333
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-    volumes:
-      - ./services/rag-chat:/app
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
-    depends_on:
-      - qdrant
+  # rag-chat:
+  #   build: ./services/rag-chat
+  #   container_name: argus-rag-chat
+  #   ports:
+  #     - "8007:8000"
+  #   environment:
+  #     QDRANT_URL: http://qdrant:6333
+  #     OPENAI_API_KEY: ${OPENAI_API_KEY}
+  #   volumes:
+  #     - ./services/rag-chat:/app
+  #   command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+  #   depends_on:
+  #     - qdrant
 
-  notification:
-    build: ./services/notification
-    container_name: argus-notification
-    environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
-    volumes:
-      - ./services/notification:/app
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
-    depends_on:
-      - kafka
+  # notification:
+  #   build: ./services/notification
+  #   container_name: argus-notification
+  #   environment:
+  #     KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  #     SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+  #   volumes:
+  #     - ./services/notification:/app
+  #   command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+  #   depends_on:
+  #     - kafka
 
-  actuation:
-    build: ./services/actuation
-    container_name: argus-actuation
-    environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      MQTT_BROKER: mosquitto
-    volumes:
-      - ./services/actuation:/app
-    command: python src/main.py
-    depends_on:
-      - kafka
-      - mosquitto
+  # actuation:
+  #   build: ./services/actuation
+  #   container_name: argus-actuation
+  #   environment:
+  #     KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  #     MQTT_BROKER: mosquitto
+  #   volumes:
+  #     - ./services/actuation:/app
+  #   command: python src/main.py
+  #   depends_on:
+  #     - kafka
+  #     - mosquitto
 
-  dashboard:
-    build: ./services/dashboard
-    container_name: argus-dashboard
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./services/dashboard:/app
-      - /app/node_modules
-    command: npm run dev -- --host
-    depends_on:
-      - decision-engine
-      - rag-chat
+  # dashboard:
+  #   build: ./services/dashboard
+  #   container_name: argus-dashboard
+  #   ports:
+  #     - "3000:3000"
+  #   volumes:
+  #     - ./services/dashboard:/app
+  #     - /app/node_modules
+  #   command: npm run dev -- --host
+  #   depends_on:
+  #     - decision-engine
+  #     - rag-chat
 
 volumes:
   postgres_data:
   redis_data:
   minio_data:
-  qdrant_data:
-  mosquitto_data:
-  mosquitto_log:
+  # qdrant_data:
+  # mosquitto_data:
+  # mosquitto_log:

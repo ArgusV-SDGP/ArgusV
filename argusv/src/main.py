@@ -14,4 +14,4 @@ logging.basicConfig(
 )
 
 # Import the FastAPI app to expose to uvicorn
-from api.server import app  # noqa: E402, F401
+from api.server import app

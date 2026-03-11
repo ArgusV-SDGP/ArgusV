@@ -26,7 +26,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
 
-import config as cfg
+from ..config import *
 
 logger = logging.getLogger("recording-worker")
 
@@ -45,7 +45,7 @@ class FFmpegRecorder:
         self.rtsp_url  = rtsp_url
         self._proc: Optional[subprocess.Popen] = None
         self._stop     = threading.Event()
-        self._tmp_dir  = Path(cfg.SEGMENT_TMP_DIR) / camera_id
+        self._tmp_dir  = Path(SEGMENT_TMP_DIR) / camera_id
         self._tmp_dir.mkdir(parents=True, exist_ok=True)
 
     def start(self) -> threading.Thread:
@@ -67,7 +67,7 @@ class FFmpegRecorder:
                 "-i", self.rtsp_url,
                 "-c", "copy",
                 "-f", "segment",
-                "-segment_time", str(cfg.SEGMENT_DURATION_SEC),
+                "-segment_time", str(SEGMENT_DURATION_SEC),
                 "-segment_format", "mpegts",
                 "-strftime", "1",
                 "-reset_timestamps", "1",
@@ -114,7 +114,7 @@ class SegmentWatcher:
         self._bus_q     = bus_queue
         self._loop      = loop
         self._stop      = threading.Event()
-        self._tmp_dir   = Path(cfg.SEGMENT_TMP_DIR) / camera_id
+        self._tmp_dir   = Path(SEGMENT_TMP_DIR) / camera_id
         self._out_dir   = Path(LOCAL_RECORDINGS_DIR) / camera_id
         self._out_dir.mkdir(parents=True, exist_ok=True)
         self._seen: dict[str, float] = {}   # path → last_size
@@ -159,7 +159,7 @@ class SegmentWatcher:
 
         epoch_start = int(m.group(1))
         start_dt    = datetime.utcfromtimestamp(epoch_start)
-        end_dt      = start_dt + timedelta(seconds=cfg.SEGMENT_DURATION_SEC)
+        end_dt      = start_dt + timedelta(seconds=SEGMENT_DURATION_SEC)
         size        = ts_file.stat().st_size
 
         # TODO REC-03: Move to recordings dir

@@ -24,9 +24,7 @@ from pathlib import Path
 from typing import Optional, Callable
 import cv2
 import numpy as np
-
-import config as cfg
-
+from ..config import *
 logger = logging.getLogger("edge-worker")
 
 
@@ -254,7 +252,7 @@ class ZoneMatcher:
     def _load_from_db(self):
         try:
             from sqlalchemy import create_engine, text
-            engine = create_engine(cfg.POSTGRES_URL)
+            engine = create_engine(POSTGRES_URL)
             with engine.connect() as conn:
                 rows = conn.execute(
                     text("SELECT zone_id, name, polygon_coords, active FROM zones")
@@ -280,7 +278,7 @@ class ZoneMatcher:
         def _listen():
             try:
                 import redis as _redis
-                r  = _redis.from_url(cfg.REDIS_URL, decode_responses=True)
+                r  = _redis.from_url(REDIS_URL, decode_responses=True)
                 ps = r.pubsub()
                 ps.subscribe("config-updates")
                 for msg in ps.listen():
@@ -326,14 +324,14 @@ class DetectLoop:
         self._detect_count = 0
 
         from ultralytics import YOLO
-        self._model       = YOLO(cfg.YOLO_MODEL)
-        self._motion_gate = MotionGate(threshold=cfg.MOTION_THRESHOLD) if cfg.USE_MOTION_GATE else None
+        self._model       = YOLO(YOLO_MODEL)
+        self._motion_gate = MotionGate(threshold=MOTION_THRESHOLD) if USE_MOTION_GATE else None
         self._dwell       = DwellTracker(
             on_event=self._emit_event,
             camera_id=camera_id,
-            loiter_threshold_sec=cfg.LOITER_SEC,
-        ) if cfg.USE_TRACKER else None
-        self._frame_interval = 1.0 / cfg.DETECT_FPS
+            loiter_threshold_sec=LOITER_SEC,
+        ) if USE_TRACKER else None
+        self._frame_interval = 1.0 / DETECT_FPS
 
     def start(self) -> threading.Thread:
         t = threading.Thread(
@@ -376,13 +374,13 @@ class DetectLoop:
 
             self._detect_count += 1
             try:
-                if cfg.USE_TRACKER:
+                if USE_TRACKER:
                     results = self._model.track(
                         frame, persist=True, verbose=False,
-                        conf=cfg.CONF_THRESHOLD, tracker="bytetrack.yaml",
+                        conf=CONF_THRESHOLD, tracker="bytetrack.yaml",
                     )
                 else:
-                    results = self._model(frame, verbose=False, conf=cfg.CONF_THRESHOLD)
+                    results = self._model(frame, verbose=False, conf=CONF_THRESHOLD)
                 self._process_results(frame, cf.timestamp, results)
             except Exception as e:
                 logger.error(f"[DetectLoop:{self.camera_id}] Inference error: {e}")
@@ -394,7 +392,7 @@ class DetectLoop:
         h, w = frame.shape[:2]
         for box in (results[0].boxes or []):
             cls_id = int(box.cls[0]) if box.cls is not None else -1
-            if cls_id not in cfg.DETECT_CLASSES:
+            if cls_id not in DETECT_CLASSES:
                 continue
             conf     = float(box.conf[0])
             x1,y1,x2,y2 = map(int, box.xyxy[0].tolist())
@@ -409,15 +407,15 @@ class DetectLoop:
                 "event_id":     str(uuid.uuid4()),
                 "camera_id":    self.camera_id,
                 "timestamp":    timestamp,
-                "object_class": cfg.DETECT_CLASSES[cls_id],
+                "object_class": DETECT_CLASSES[cls_id],
                 "confidence":   round(conf, 3),
                 "track_id":     track_id,
                 "zone_id":      zone["id"],
                 "zone_name":    zone["name"],
                 "bbox":         {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
             }
-            if cfg.EMBED_FRAME:
-                _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, cfg.FRAME_JPEG_Q])
+            if EMBED_FRAME:
+                _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, FRAME_JPEG_Q])
                 ev["trigger_frame_b64"] = base64.b64encode(buf).decode()
 
             if self._dwell and track_id is not None:
@@ -439,11 +437,11 @@ class CameraWorker:
                  zone_matcher: ZoneMatcher):
         self.camera_id = camera_id
         self._buf      = FrameBuffer(rtsp_url=rtsp_url, camera_id=camera_id,
-                                     max_seconds=10, fps=cfg.DETECT_FPS)
+                                     max_seconds=10, fps=DETECT_FPS)
         self._detect   = DetectLoop(camera_id, self._buf, bus_queue, loop, zone_matcher)
         self._recorder = None
 
-        if cfg.RECORDINGS_ENABLED:
+        if RECORDINGS_ENABLED:
             try:
                 from workers.recording_worker import CameraRecorder
                 self._recorder = CameraRecorder(camera_id, rtsp_url)
@@ -479,7 +477,7 @@ _zone_matcher: Optional[ZoneMatcher]     = None
 def start_cameras(bus_queue: asyncio.Queue, loop: asyncio.AbstractEventLoop):
     global _zone_matcher
     _zone_matcher = ZoneMatcher()
-    for cam in cfg.CAMERAS:
+    for cam in CAMERAS:
         w = CameraWorker(cam["id"], cam["rtsp_url"], bus_queue, loop, _zone_matcher)
         w.start()
         _camera_workers[cam["id"]] = w
