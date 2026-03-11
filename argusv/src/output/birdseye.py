@@ -53,13 +53,18 @@ def get_birdseye_composite() -> np.ndarray:
         if frame is not None:
             # Resize to fit tile
             resized = cv2.resize(frame, (tw, th))
+        else:
+            # Placeholder for offline camera
+            resized = np.zeros((th, tw, 3), dtype=np.uint8)
+            cv2.putText(resized, f"{cam_id} OFFLINE", (50, 180), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
             
-            # Draw label
-            cv2.rectangle(resized, (0, 0), (150, 30), (0, 0, 0), -1)
-            cv2.putText(resized, cam_id, (10, 20), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-            
-            grid[r*th:(r+1)*th, c*tw:(c+1)*tw] = resized
+        # Draw label
+        cv2.rectangle(resized, (0, 0), (150, 35), (0, 0, 0), -1)
+        cv2.putText(resized, cam_id, (10, 25), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        
+        grid[r*th:(r+1)*th, c*tw:(c+1)*tw] = resized
 
     _, jpeg = cv2.imencode('.jpg', grid)
     return jpeg.tobytes()

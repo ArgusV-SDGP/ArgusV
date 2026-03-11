@@ -16,6 +16,7 @@ from typing import Optional
 
 import config as cfg
 from bus import bus
+from workers.watchdog_worker import record_heartbeat
 
 logger = logging.getLogger("pipeline-worker")
 
@@ -32,6 +33,7 @@ async def stream_ingestion_worker():
     """
     logger.info("[Pipeline] stream-ingestion worker started")
     while True:
+        record_heartbeat("stream-ingestion")
         event: dict = await bus.raw_detections.get()
         try:
             event_type = event.get("event_type", "DETECTED")
@@ -86,6 +88,7 @@ async def vlm_inference_worker():
     _vlm_semaphore = asyncio.Semaphore(cfg.VLM_MAX_WORKERS)
     logger.info("[Pipeline] VLM inference worker started")
     while True:
+        record_heartbeat("vlm-inference")
         event: dict = await bus.vlm_requests.get()
         asyncio.create_task(_run_vlm(event))
         bus.vlm_requests.task_done()
@@ -207,6 +210,7 @@ async def _call_openai(event: dict) -> dict:
 async def decision_engine_worker():
     logger.info("[Pipeline] Decision engine worker started")
     while True:
+        record_heartbeat("decision-engine")
         event: dict = await bus.vlm_results.get()
         try:
             await _process_decision(event)
@@ -281,6 +285,7 @@ async def _process_decision(event: dict):
 async def notification_worker():
     logger.info("[Pipeline] Notification worker started")
     while True:
+        record_heartbeat("notification")
         action: dict = await bus.actions.get()
         try:
             if action.get("action_type") == "ALERT" and cfg.SLACK_BOT_TOKEN:

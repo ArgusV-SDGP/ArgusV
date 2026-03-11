@@ -82,6 +82,20 @@ def get_stats() -> dict:
         "disk":         disk,
     }
 
+def get_prometheus_metrics() -> str:
+    """Format stats for Prometheus consumption (WATCH-08)."""
+    s = get_stats()
+    lines = [
+        f'argusv_cpu_pct {s["cpu_pct"]}',
+        f'argusv_memory_rss_mb {s["rss_mb"]}',
+        f'argusv_detections_total {s["detections_total"]}',
+        f'argusv_vlm_calls_total {s["vlm_calls"]}',
+        f'argusv_uptime_seconds {s["uptime_sec"]}',
+    ]
+    for cam_id, count in s["detections_per_cam"].items():
+        lines.append(f'argusv_camera_detections_total{{camera_id="{cam_id}"}} {count}')
+    return "\n".join(lines) + "\n"
+
 
 async def stats_emitter_worker():
     """

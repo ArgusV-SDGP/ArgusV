@@ -17,6 +17,8 @@ import time
 from datetime import datetime
 from typing import Optional
 
+import config as cfg
+
 logger = logging.getLogger("events.maintainer")
 
 
@@ -113,7 +115,7 @@ class EventMaintainer:
                     if best_frame:
                         import base64
                         import os
-                        thumb_path = f"recordings/thumbnails/{event_id}.jpg"
+                        thumb_path = os.path.join(cfg.LOCAL_RECORDINGS_DIR, "thumbnails", f"{event_id}.jpg")
                         os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
                         with open(thumb_path, "wb") as f:
                             f.write(base64.b64decode(best_frame))

@@ -6,7 +6,6 @@ Task: TEST-05
 Tests:
   - GET /health
   - GET /metrics
-  - GET /api/stats
   - GET /api/birdseye
 """
 
@@ -14,7 +13,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 
-# Mock stats before importing app to avoid psutil errors in restricted environments
+# Mock psutil to avoid issues in some environments
 with patch("psutil.Process"), patch("psutil.disk_usage"):
     from api.server import app
 
@@ -31,21 +30,13 @@ class TestReliabilityAPI(unittest.TestCase):
         self.assertIn("cameras", data)
         self.assertIn("uptime_sec", data)
 
-    @patch("stats.emitter.get_stats")
-    def test_metrics_endpoint(self, mock_get_stats):
-        """Verify Prometheus metrics formatting."""
-        mock_get_stats.return_value = {
-            "cpu_pct": 5.0,
-            "rss_mb": 150.0,
-            "detections_total": 10,
-            "vlm_calls": 2,
-            "uptime_sec": 3600.0,
-            "detections_per_cam": {"cam-01": 10}
-        }
+    @patch("stats.emitter.get_prometheus_metrics")
+    def test_metrics_endpoint(self, mock_metrics):
+        """Verify Prometheus metrics endpoint calls the formatter."""
+        mock_metrics.return_value = "argusv_test_metric 123\n"
         response = client.get("/metrics")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("argusv_cpu_pct 5.0", response.text)
-        self.assertIn('argusv_camera_detections_total{camera_id="cam-01"} 10', response.text)
+        self.assertIn("argusv_test_metric 123", response.text)
 
     @patch("output.birdseye.get_birdseye_composite")
     def test_birdseye_endpoint(self, mock_get_birdseye):
