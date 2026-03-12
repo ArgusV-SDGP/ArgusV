@@ -131,3 +131,35 @@ async def test_concurrent_producers_no_data_corruption():
         seen.append((item["producer"], item["seq"]))
 
     assert len(seen) == n * 10
+
+
+# ── Ordering: FIFO guarantee ──────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_fifo_order_raw_detections():
+    """Items must come out of raw_detections in the exact order they went in."""
+    bus = EventBus()
+    events = [{"seq": i} for i in range(20)]
+    for e in events:
+        bus.raw_detections.put_nowait(e)
+
+    received = []
+    while not bus.raw_detections.empty():
+        received.append(bus.raw_detections.get_nowait())
+
+    assert received == events
+
+
+@pytest.mark.asyncio
+async def test_fifo_order_actions():
+    """actions channel preserves insertion order."""
+    bus = EventBus()
+    payloads = [{"action": f"act-{i}"} for i in range(10)]
+    for p in payloads:
+        bus.actions.put_nowait(p)
+
+    received = []
+    while not bus.actions.empty():
+        received.append(bus.actions.get_nowait())
+
+    assert received == payloads
