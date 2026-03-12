@@ -14,4 +14,15 @@ async def test_stats_reflects_queue_size(mock_bus):
     stats = mock_bus.stats()
     assert stats["vlm_requests"] == 1
 
-# TODO TEST-02: add backpressure test (maxsize exceeded)
+
+# ── Backpressure: raw_detections (maxsize=1000) ───────────────────────────────
+
+@pytest.mark.asyncio
+async def test_raw_detections_backpressure():
+    """raw_detections queue raises QueueFull when maxsize=1000 is exceeded."""
+    bus = EventBus()
+    for i in range(1000):
+        bus.raw_detections.put_nowait({"i": i})
+    assert bus.raw_detections.full()
+    with pytest.raises(asyncio.QueueFull):
+        bus.raw_detections.put_nowait({"overflow": True})
