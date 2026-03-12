@@ -163,3 +163,50 @@ async def test_fifo_order_actions():
         received.append(bus.actions.get_nowait())
 
     assert received == payloads
+
+
+# ── Stats accuracy ────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_stats_all_channels_start_at_zero():
+    """A freshly created EventBus should report 0 for every channel."""
+    bus = EventBus()
+    stats = bus.stats()
+    for channel, depth in stats.items():
+        assert depth == 0, f"{channel} should be 0 on fresh bus, got {depth}"
+
+
+@pytest.mark.asyncio
+async def test_stats_accuracy_after_mixed_puts_and_gets():
+    """stats() must reflect the live queue state after interleaved puts/gets."""
+    bus = EventBus()
+
+    for i in range(5):
+        bus.raw_detections.put_nowait({"i": i})
+    for i in range(3):
+        bus.vlm_requests.put_nowait({"i": i})
+
+    # consume 2 from raw_detections
+    bus.raw_detections.get_nowait()
+    bus.raw_detections.get_nowait()
+
+    stats = bus.stats()
+    assert stats["raw_detections"] == 3
+    assert stats["vlm_requests"] == 3
+    assert stats["vlm_results"] == 0
+    assert stats["actions"] == 0
+
+
+@pytest.mark.asyncio
+async def test_stats_returns_zero_after_full_drain():
+    """After draining a channel completely, its stat should return to 0."""
+    bus = EventBus()
+    for i in range(10):
+        bus.alerts_ws.put_nowait({"i": i})
+
+    assert bus.stats()["alerts_ws"] == 10
+
+    while not bus.alerts_ws.empty():
+        bus.alerts_ws.get_nowait()
+
+    assert bus.stats()["alerts_ws"] == 0
