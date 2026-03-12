@@ -105,3 +105,29 @@ async def test_rag_indexing_backpressure():
     assert bus.rag_indexing.full()
     with pytest.raises(asyncio.QueueFull):
         bus.rag_indexing.put_nowait({"overflow": True})
+
+
+# ── Concurrency: parallel producers ──────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_concurrent_producers_no_data_corruption():
+    """Multiple coroutines writing to raw_detections concurrently
+    should all succeed and every item should be retrievable intact."""
+    bus = EventBus()
+    n = 50
+
+    async def producer(tag: int):
+        for i in range(10):
+            await bus.raw_detections.put({"producer": tag, "seq": i})
+
+    await asyncio.gather(*[producer(t) for t in range(n)])
+
+    assert bus.raw_detections.qsize() == n * 10
+
+    seen = []
+    while not bus.raw_detections.empty():
+        item = bus.raw_detections.get_nowait()
+        assert "producer" in item and "seq" in item
+        seen.append((item["producer"], item["seq"]))
+
+    assert len(seen) == n * 10
