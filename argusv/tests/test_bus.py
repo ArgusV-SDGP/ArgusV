@@ -26,3 +26,82 @@ async def test_raw_detections_backpressure():
     assert bus.raw_detections.full()
     with pytest.raises(asyncio.QueueFull):
         bus.raw_detections.put_nowait({"overflow": True})
+
+
+# ── Backpressure: all remaining channels ─────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_vlm_requests_backpressure():
+    """vlm_requests raises QueueFull at maxsize=200."""
+    bus = EventBus()
+    for i in range(200):
+        bus.vlm_requests.put_nowait({"i": i})
+    assert bus.vlm_requests.full()
+    with pytest.raises(asyncio.QueueFull):
+        bus.vlm_requests.put_nowait({"overflow": True})
+
+
+@pytest.mark.asyncio
+async def test_vlm_results_backpressure():
+    """vlm_results raises QueueFull at maxsize=200."""
+    bus = EventBus()
+    for i in range(200):
+        bus.vlm_results.put_nowait({"i": i})
+    assert bus.vlm_results.full()
+    with pytest.raises(asyncio.QueueFull):
+        bus.vlm_results.put_nowait({"overflow": True})
+
+
+@pytest.mark.asyncio
+async def test_actions_backpressure():
+    """actions raises QueueFull at maxsize=500."""
+    bus = EventBus()
+    for i in range(500):
+        bus.actions.put_nowait({"i": i})
+    assert bus.actions.full()
+    with pytest.raises(asyncio.QueueFull):
+        bus.actions.put_nowait({"overflow": True})
+
+
+@pytest.mark.asyncio
+async def test_alerts_ws_backpressure():
+    """alerts_ws raises QueueFull at maxsize=2000."""
+    bus = EventBus()
+    for i in range(2000):
+        bus.alerts_ws.put_nowait({"i": i})
+    assert bus.alerts_ws.full()
+    with pytest.raises(asyncio.QueueFull):
+        bus.alerts_ws.put_nowait({"overflow": True})
+
+
+@pytest.mark.asyncio
+async def test_snapshots_backpressure():
+    """snapshots raises QueueFull at maxsize=1000."""
+    bus = EventBus()
+    for i in range(1000):
+        bus.snapshots.put_nowait({"i": i})
+    assert bus.snapshots.full()
+    with pytest.raises(asyncio.QueueFull):
+        bus.snapshots.put_nowait({"overflow": True})
+
+
+@pytest.mark.asyncio
+async def test_clips_backpressure():
+    """clips raises QueueFull at maxsize=200."""
+    bus = EventBus()
+    for i in range(200):
+        bus.clips.put_nowait({"i": i})
+    assert bus.clips.full()
+    with pytest.raises(asyncio.QueueFull):
+        bus.clips.put_nowait({"overflow": True})
+
+
+@pytest.mark.asyncio
+async def test_rag_indexing_backpressure():
+    """rag_indexing raises QueueFull at maxsize=500."""
+    bus = EventBus()
+    for i in range(500):
+        bus.rag_indexing.put_nowait({"i": i})
+    assert bus.rag_indexing.full()
+    with pytest.raises(asyncio.QueueFull):
+        bus.rag_indexing.put_nowait({"overflow": True})
