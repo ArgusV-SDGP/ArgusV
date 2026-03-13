@@ -455,3 +455,100 @@ def test_list_detections_threats_only_filter():
     with patch("db.connection.get_db_sync", return_value=db):
         r = client.get("/api/detections?threats_only=true")
     assert r.status_code == 200
+
+
+# ── Segment helper ────────────────────────────────────────────────────────────
+
+def _make_segment_mock():
+    from unittest.mock import MagicMock
+    from datetime import datetime
+    import uuid
+    seg = MagicMock()
+    seg.segment_id      = uuid.uuid4()
+    seg.camera_id       = "cam-01"
+    seg.start_time      = datetime(2026, 1, 1, 12, 0, 0)
+    seg.end_time        = datetime(2026, 1, 1, 12, 0, 10)
+    seg.duration_sec    = 10.0
+    seg.minio_path      = "/recordings/cam-01/seg-001.ts"
+    seg.size_bytes      = 204800
+    seg.has_motion      = True
+    seg.has_detections  = True
+    seg.detection_count = 2
+    seg.locked          = False
+    return seg
+
+
+# ── GET /api/recordings/{camera_id} ──────────────────────────────────────────
+
+def test_list_segments_returns_200(_override_deps):
+    _override_deps.query.return_value.filter.return_value\
+        .order_by.return_value.all.return_value = []
+    r = client.get("/api/recordings/cam-01")
+    assert r.status_code == 200
+
+
+def test_list_segments_returns_list(_override_deps):
+    _override_deps.query.return_value.filter.return_value\
+        .order_by.return_value.all.return_value = []
+    assert isinstance(client.get("/api/recordings/cam-01").json(), list)
+
+
+def test_list_segments_returns_segment_data(_override_deps):
+    seg = _make_segment_mock()
+    _override_deps.query.return_value.filter.return_value\
+        .order_by.return_value.all.return_value = [seg]
+    body = client.get("/api/recordings/cam-01").json()
+    assert len(body) == 1
+    assert body[0]["camera_id"]    == "cam-01"
+    assert body[0]["duration_sec"] == 10.0
+    assert body[0]["minio_path"]   == "/recordings/cam-01/seg-001.ts"
+
+
+# ── GET /api/recordings/{camera_id}/playlist ─────────────────────────────────
+
+def test_playlist_no_segments_returns_404(_override_deps):
+    _override_deps.query.return_value.filter.return_value\
+        .filter.return_value.filter.return_value\
+        .order_by.return_value.all.return_value = []
+    r = client.get(
+        "/api/recordings/cam-01/playlist"
+        "?start=2026-01-01T00:00:00&end=2026-01-01T01:00:00"
+    )
+    assert r.status_code == 404
+
+
+def test_playlist_returns_m3u8(_override_deps):
+    seg = _make_segment_mock()
+    # playlist uses .filter(cond1, cond2, cond3) — single call, not chained
+    _override_deps.query.return_value.filter.return_value\
+        .order_by.return_value.all.return_value = [seg]
+    r = client.get(
+        "/api/recordings/cam-01/playlist"
+        "?start=2026-01-01T00:00:00&end=2026-01-01T01:00:00"
+    )
+    assert r.status_code == 200
+    assert "#EXTM3U" in r.text
+
+
+# ── GET /api/incidents/{incident_id}/replay ───────────────────────────────────
+
+def test_incident_replay_not_found_returns_404(_override_deps):
+    _override_deps.query.return_value.filter.return_value.first.return_value = None
+    r = client.get(f"/api/incidents/{_INCIDENT_ID}/replay")
+    assert r.status_code == 404
+
+
+def test_incident_replay_returns_window(_override_deps):
+    inc = _make_incident_mock()
+    seg = _make_segment_mock()
+    # first() returns the incident; subsequent query returns segments
+    _override_deps.query.return_value.filter.return_value.first.return_value = inc
+    _override_deps.query.return_value.filter.return_value\
+        .filter.return_value.filter.return_value\
+        .order_by.return_value.all.return_value = [seg]
+    r = client.get(f"/api/incidents/{_INCIDENT_ID}/replay")
+    assert r.status_code == 200
+    body = r.json()
+    assert "window"       in body
+    assert "playlist_url" in body
+    assert "segments"     in body
