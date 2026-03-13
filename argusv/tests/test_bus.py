@@ -210,3 +210,38 @@ async def test_stats_returns_zero_after_full_drain():
         bus.alerts_ws.get_nowait()
 
     assert bus.stats()["alerts_ws"] == 0
+
+
+# ── Blocking backpressure: await put() suspends when queue is full ────────────
+
+@pytest.mark.asyncio
+async def test_blocking_put_suspends_when_vlm_requests_full():
+    """When vlm_requests (maxsize=200) is full, await put() must block
+    rather than drop the item or raise immediately.
+    A short timeout proves the coroutine is suspended, not returning."""
+    from asyncio import wait_for, TimeoutError as AioTimeout
+    bus = EventBus()
+    for i in range(200):
+        bus.vlm_requests.put_nowait({"i": i})
+    assert bus.vlm_requests.full()
+    with pytest.raises(AioTimeout):
+        await wait_for(bus.vlm_requests.put({"overflow": True}), timeout=0.05)
+
+
+@pytest.mark.asyncio
+async def test_blocking_put_resumes_after_consumer_drains_one():
+    """Confirm that a blocked producer unblocks as soon as a consumer
+    pulls one item from the full queue."""
+    from asyncio import wait_for
+    bus = EventBus()
+    for i in range(200):
+        bus.vlm_requests.put_nowait({"i": i})
+
+    async def _drain_one():
+        await asyncio.sleep(0.02)
+        bus.vlm_requests.get_nowait()
+
+    drain_task = asyncio.create_task(_drain_one())
+    await wait_for(bus.vlm_requests.put({"late": True}), timeout=1.0)
+    await drain_task
+    assert bus.vlm_requests.qsize() == 200

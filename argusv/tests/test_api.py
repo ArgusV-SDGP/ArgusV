@@ -698,3 +698,61 @@ def test_timeline_response_shape(_override_deps):
     assert body["camera_id"] == "cam-01"
     assert "markers"         in body
     assert "range"           in body
+
+
+# ── POST /auth/token ──────────────────────────────────────────────────────────
+
+def test_auth_token_with_valid_env_user(_override_deps):
+    """Issue a token using an env-configured user (cfg.AUTH_USERS)."""
+    from unittest.mock import patch
+    import config as cfg
+    _override_deps.query.return_value.filter.return_value.first.return_value = None
+    with patch.object(cfg, "AUTH_USERS", {"testuser": {"password": "testpass", "role": "ADMIN"}}):
+        r = client.post("/auth/token", json={"username": "testuser", "password": "testpass"})
+    assert r.status_code == 200
+    body = r.json()
+    assert "access_token"  in body
+    assert "refresh_token" in body
+    assert body["token_type"] == "bearer"
+
+
+def test_auth_token_wrong_password_returns_401(_override_deps):
+    from unittest.mock import patch
+    import config as cfg
+    _override_deps.query.return_value.filter.return_value.first.return_value = None
+    with patch.object(cfg, "AUTH_USERS", {"testuser": {"password": "testpass", "role": "ADMIN"}}):
+        r = client.post("/auth/token", json={"username": "testuser", "password": "wrong"})
+    assert r.status_code == 401
+
+
+def test_auth_token_unknown_user_returns_401(_override_deps):
+    from unittest.mock import patch
+    import config as cfg
+    _override_deps.query.return_value.filter.return_value.first.return_value = None
+    with patch.object(cfg, "AUTH_USERS", {}):
+        r = client.post("/auth/token", json={"username": "nobody", "password": "x"})
+    assert r.status_code == 401
+
+
+# ── POST /auth/refresh ────────────────────────────────────────────────────────
+
+def test_auth_refresh_returns_new_access_token(_override_deps):
+    from unittest.mock import patch
+    import config as cfg
+    from auth.jwt_handler import create_refresh_token
+    _override_deps.query.return_value.filter.return_value.first.return_value = None
+    refresh_tok = create_refresh_token({"sub": "testuser", "username": "testuser", "role": "ADMIN"})
+    with patch.object(cfg, "AUTH_USERS", {"testuser": {"password": "p", "role": "ADMIN"}}):
+        r = client.post("/auth/refresh", json={"refresh_token": refresh_tok})
+    assert r.status_code == 200
+    assert "access_token" in r.json()
+
+
+# ── GET /auth/me ──────────────────────────────────────────────────────────────
+
+def test_auth_me_returns_current_user():
+    r = client.get("/auth/me")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["username"] == "test-admin"
+    assert body["role"]     == "ADMIN"
