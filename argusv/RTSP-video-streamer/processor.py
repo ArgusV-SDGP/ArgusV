@@ -21,11 +21,12 @@ with open(config_file, 'r') as f:
 # Dictionary to keep our "leashes" on the running processes
 active_processes = {}
 
-# start the media server
-try:
-    active_processes['media_server'] = subprocess.Popen(["python","server.py"])
-except Exception as e:
-    logger.error(e)
+# MediaMTX is managed by Docker (argus-mediamtx-dev on ports 8554+8888).
+# Do NOT start a local mediamtx.exe — it causes port conflicts.
+# try:
+#     active_processes['media_server'] = subprocess.Popen(["python","server.py"])
+# except Exception as e:
+#     logger.error(e)
 
 for config in stream_configs:
     name = config["name"]
@@ -43,8 +44,10 @@ for config in stream_configs:
 
     command.extend([
         '-i', file_path,
-        '-c', 'copy',  # Use -c:v libx264 if your video isn't already H.264
+        '-c:v', 'copy',
+        '-c:a', 'aac',
         '-f', 'rtsp',
+        '-rtsp_transport', 'tcp',
         url
     ])
 

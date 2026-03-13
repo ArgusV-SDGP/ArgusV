@@ -1018,6 +1018,26 @@
 
   <script src="/static/auth.js"></script>
   <script>
+    // ── Auth init: show username, wire logout ──────────────────────────────
+    (async () => {
+      const me = await window.ArgusAuth.fetchMe();
+      if (!me) {
+        const next = encodeURIComponent(window.location.pathname);
+        window.location.href = `/static/login.html?next=${next}`;
+        return;
+      }
+      const userEl = document.getElementById('auth-user');
+      if (userEl) {
+        const roleEmoji = { ADMIN: '🔑', VIEWER: '👁' }[me.role?.toUpperCase()] || '👤';
+        userEl.textContent = `${roleEmoji} ${me.username}`;
+      }
+    })();
+
+    document.getElementById('logoutBtn')?.addEventListener('click', () => {
+      window.ArgusAuth.logout();
+    });
+  </script>
+  <script>
     // ── State ─────────────────────────────────────────────────────────────────
     const events = new Map();   // event_id → card data
     const counters = { HIGH: 0, MEDIUM: 0, LOW: 0, PENDING: 0 };

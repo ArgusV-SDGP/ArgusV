@@ -69,8 +69,9 @@ FRAME_JPEG_Q     = int(os.getenv("FRAME_JPEG_Q", "60"))
 
 RECORDINGS_ENABLED   = os.getenv("RECORDINGS_ENABLED", "true").lower() == "true"
 SEGMENT_DURATION_SEC = int(os.getenv("SEGMENT_DURATION_SEC", "10"))
-SEGMENT_TMP_DIR      = os.getenv("SEGMENT_TMP_DIR", "/tmp/argus_segments")
+SEGMENT_TMP_DIR      = os.getenv("SEGMENT_TMP_DIR", "./tmp/argus_segments")
 RECORDINGS_RETAIN_DAYS = int(os.getenv("RECORDINGS_RETAIN_DAYS", "7"))
+LOCAL_RECORDINGS_DIR   = os.getenv("LOCAL_RECORDINGS_DIR", "./recordings")
 
 # Watchdog
 WATCHDOG_DISK_WARN_PCT = int(os.getenv("WATCHDOG_DISK_WARN_PCT", "80"))

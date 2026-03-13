@@ -14,7 +14,7 @@ Tasks: PIPE-01, REC-13, REC-14
 import asyncio
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 logger = logging.getLogger("events.maintainer")
@@ -75,13 +75,13 @@ class EventMaintainer:
         camera_id = ev.get("camera_id")
         event_id = ev.get("event_id")
         # Handle time safely if keys exist
-        started_at = datetime.utcfromtimestamp(ev.get("started_at", time.time()))
-        ended_at = datetime.utcfromtimestamp(ev.get("ended_at", time.time()))
+        started_at = datetime.fromtimestamp(ev.get("started_at", time.time()), timezone.utc).replace(tzinfo=None)
+        ended_at   = datetime.fromtimestamp(ev.get("ended_at", time.time()), timezone.utc).replace(tzinfo=None)
 
         logger.info(f"[Events] END track={ev.get('track_id')} "
                     f"class={ev.get('object_class')} dwell={dwell}s")
 
-        # REC-13 & REC-15: Lock segments and update DB
+        # Finalize event: Lock segments and update DB
         async with get_db_session() as db:
             stmt = select(Segment).where(
                 Segment.camera_id == camera_id,
