@@ -94,3 +94,70 @@ def test_metrics_contains_prometheus_counters():
     assert "argusv_vlm_calls_total"   in text
     assert "argusv_uptime_seconds"    in text
     assert "argusv_cpu_percent"       in text
+
+
+# ── GET /api/cameras ──────────────────────────────────────────────────────────
+
+def test_list_cameras_returns_200():
+    r = client.get("/api/cameras")
+    assert r.status_code == 200
+
+
+def test_list_cameras_returns_list(_override_deps):
+    _override_deps.query.return_value.order_by.return_value.all.return_value = []
+    r = client.get("/api/cameras")
+    assert isinstance(r.json(), list)
+
+
+def test_list_cameras_returns_camera_objects(_override_deps):
+    from datetime import datetime
+    from unittest.mock import MagicMock
+    cam = MagicMock()
+    cam.camera_id  = "cam-01"
+    cam.name       = "Front Gate"
+    cam.rtsp_url   = "rtsp://localhost:8554/cam-01"
+    cam.zone_id    = None
+    cam.status     = "online"
+    cam.resolution = "1920x1080"
+    cam.fps        = 25
+    cam.created_at = datetime(2026, 1, 1, 0, 0, 0)
+    cam.last_seen  = datetime(2026, 1, 1, 0, 0, 0)
+
+    _override_deps.query.return_value.order_by.return_value.all.return_value = [cam]
+    r = client.get("/api/cameras")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 1
+    assert body[0]["camera_id"] == "cam-01"
+    assert body[0]["name"]      == "Front Gate"
+    assert body[0]["status"]    == "online"
+
+
+# ── GET /api/cameras/{camera_id} ──────────────────────────────────────────────
+
+def test_get_camera_not_found(_override_deps):
+    _override_deps.query.return_value.filter.return_value.first.return_value = None
+    r = client.get("/api/cameras/cam-missing")
+    assert r.status_code == 404
+
+
+def test_get_camera_returns_camera(_override_deps):
+    from datetime import datetime
+    from unittest.mock import MagicMock
+    cam = MagicMock()
+    cam.camera_id  = "cam-02"
+    cam.name       = "Parking Lot"
+    cam.rtsp_url   = "rtsp://localhost:8554/cam-02"
+    cam.zone_id    = None
+    cam.status     = "online"
+    cam.resolution = "1280x720"
+    cam.fps        = 30
+    cam.created_at = datetime(2026, 1, 1, 0, 0, 0)
+    cam.last_seen  = datetime(2026, 1, 1, 0, 0, 0)
+
+    _override_deps.query.return_value.filter.return_value.first.return_value = cam
+    r = client.get("/api/cameras/cam-02")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["camera_id"] == "cam-02"
+    assert body["name"]      == "Parking Lot"
