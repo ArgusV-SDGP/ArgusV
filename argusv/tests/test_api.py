@@ -161,3 +161,77 @@ def test_get_camera_returns_camera(_override_deps):
     body = r.json()
     assert body["camera_id"] == "cam-02"
     assert body["name"]      == "Parking Lot"
+
+
+# ── POST /api/cameras ─────────────────────────────────────────────────────────
+
+_NEW_CAM = {
+    "camera_id": "cam-03",
+    "name":      "Back Door",
+    "rtsp_url":  "rtsp://localhost:8554/cam-03",
+}
+
+
+def test_create_camera_returns_201(_override_deps):
+    # No existing camera with that id
+    _override_deps.query.return_value.filter.return_value.first.return_value = None
+    r = client.post("/api/cameras", json=_NEW_CAM)
+    assert r.status_code == 201
+
+
+def test_create_camera_returns_camera_data(_override_deps):
+    _override_deps.query.return_value.filter.return_value.first.return_value = None
+    r = client.post("/api/cameras", json=_NEW_CAM)
+    body = r.json()
+    assert body["camera_id"] == "cam-03"
+    assert body["name"]      == "Back Door"
+
+
+def test_create_camera_conflict_returns_409(_override_deps):
+    from unittest.mock import MagicMock
+    _override_deps.query.return_value.filter.return_value.first.return_value = MagicMock()
+    r = client.post("/api/cameras", json=_NEW_CAM)
+    assert r.status_code == 409
+
+
+# ── PUT /api/cameras/{camera_id} ──────────────────────────────────────────────
+
+def test_update_camera_not_found_returns_404(_override_deps):
+    _override_deps.query.return_value.filter.return_value.first.return_value = None
+    r = client.put("/api/cameras/cam-missing", json={"name": "New Name"})
+    assert r.status_code == 404
+
+
+def test_update_camera_returns_updated_data(_override_deps):
+    from datetime import datetime
+    from unittest.mock import MagicMock
+    cam = MagicMock()
+    cam.camera_id  = "cam-03"
+    cam.name       = "Updated Name"
+    cam.rtsp_url   = "rtsp://localhost:8554/cam-03"
+    cam.zone_id    = None
+    cam.status     = "online"
+    cam.resolution = None
+    cam.fps        = 25
+    cam.created_at = datetime(2026, 1, 1)
+    cam.last_seen  = datetime(2026, 1, 1)
+
+    _override_deps.query.return_value.filter.return_value.first.return_value = cam
+    r = client.put("/api/cameras/cam-03", json={"name": "Updated Name"})
+    assert r.status_code == 200
+    assert r.json()["camera_id"] == "cam-03"
+
+
+# ── DELETE /api/cameras/{camera_id} ───────────────────────────────────────────
+
+def test_delete_camera_returns_204(_override_deps):
+    from unittest.mock import MagicMock
+    _override_deps.query.return_value.filter.return_value.first.return_value = MagicMock()
+    r = client.delete("/api/cameras/cam-03")
+    assert r.status_code == 204
+
+
+def test_delete_camera_not_found_returns_404(_override_deps):
+    _override_deps.query.return_value.filter.return_value.first.return_value = None
+    r = client.delete("/api/cameras/cam-missing")
+    assert r.status_code == 404
