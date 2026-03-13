@@ -235,3 +235,95 @@ def test_delete_camera_not_found_returns_404(_override_deps):
     _override_deps.query.return_value.filter.return_value.first.return_value = None
     r = client.delete("/api/cameras/cam-missing")
     assert r.status_code == 404
+
+
+# ── Zone helpers ──────────────────────────────────────────────────────────────
+
+_ZONE_ID      = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+_VALID_POLY   = [[0.1, 0.1], [0.8, 0.1], [0.5, 0.9]]
+_NEW_ZONE     = {"name": "Front Perimeter", "polygon_coords": _VALID_POLY}
+
+
+def _make_zone_mock():
+    from unittest.mock import MagicMock
+    from datetime import datetime
+    import uuid
+    z = MagicMock()
+    z.zone_id             = uuid.UUID(_ZONE_ID)
+    z.name                = "Front Perimeter"
+    z.polygon_coords      = _VALID_POLY
+    z.zone_type           = "security"
+    z.dwell_threshold_sec = 30
+    z.active              = True
+    z.created_at          = datetime(2026, 1, 1)
+    return z
+
+
+# ── GET /api/zones ────────────────────────────────────────────────────────────
+
+def test_list_zones_returns_200():
+    r = client.get("/api/zones")
+    assert r.status_code == 200
+
+
+def test_list_zones_returns_list():
+    r = client.get("/api/zones")
+    assert isinstance(r.json(), list)
+
+
+def test_list_zones_returns_zone_objects(_override_deps):
+    _override_deps.query.return_value.order_by.return_value.all.return_value = [_make_zone_mock()]
+    body = client.get("/api/zones").json()
+    assert len(body) == 1
+    assert body[0]["name"]      == "Front Perimeter"
+    assert body[0]["zone_type"] == "security"
+
+
+# ── GET /api/zones/{zone_id} ──────────────────────────────────────────────────
+
+def test_get_zone_not_found_returns_404(_override_deps):
+    _override_deps.query.return_value.filter.return_value.first.return_value = None
+    r = client.get(f"/api/zones/{_ZONE_ID}")
+    assert r.status_code == 404
+
+
+def test_get_zone_returns_zone(_override_deps):
+    _override_deps.query.return_value.filter.return_value.first.return_value = _make_zone_mock()
+    r = client.get(f"/api/zones/{_ZONE_ID}")
+    assert r.status_code == 200
+    assert r.json()["zone_id"] == _ZONE_ID
+
+
+# ── POST /api/zones ───────────────────────────────────────────────────────────
+
+def test_create_zone_returns_201(_override_deps):
+    r = client.post("/api/zones", json=_NEW_ZONE)
+    assert r.status_code == 201
+
+
+def test_create_zone_returns_zone_data(_override_deps):
+    body = client.post("/api/zones", json=_NEW_ZONE).json()
+    assert body["name"]      == "Front Perimeter"
+    assert "zone_id"         in body
+    assert body["zone_type"] == "security"
+
+
+def test_create_zone_rejects_invalid_polygon(_override_deps):
+    # Self-intersecting polygon must return 400
+    bad_poly = [[0.1, 0.1], [0.9, 0.9], [0.9, 0.1], [0.1, 0.9]]
+    r = client.post("/api/zones", json={"name": "Bad Zone", "polygon_coords": bad_poly})
+    assert r.status_code == 400
+
+
+# ── DELETE /api/zones/{zone_id} ───────────────────────────────────────────────
+
+def test_delete_zone_returns_204(_override_deps):
+    _override_deps.query.return_value.filter.return_value.first.return_value = _make_zone_mock()
+    r = client.delete(f"/api/zones/{_ZONE_ID}")
+    assert r.status_code == 204
+
+
+def test_delete_zone_not_found_returns_404(_override_deps):
+    _override_deps.query.return_value.filter.return_value.first.return_value = None
+    r = client.delete(f"/api/zones/{_ZONE_ID}")
+    assert r.status_code == 404
