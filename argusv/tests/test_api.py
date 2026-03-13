@@ -552,3 +552,105 @@ def test_incident_replay_returns_window(_override_deps):
     assert "window"       in body
     assert "playlist_url" in body
     assert "segments"     in body
+
+
+# ── RBAC helpers ──────────────────────────────────────────────────────────────
+
+_VIEWER = {
+    "auth_type": "jwt",
+    "subject":   "test-viewer",
+    "username":  "test-viewer",
+    "role":      "VIEWER",
+}
+
+
+def _as_viewer():
+    app.dependency_overrides[get_current_user] = lambda: _VIEWER
+
+
+def _as_admin():
+    app.dependency_overrides[get_current_user] = lambda: _ADMIN
+
+
+# ── RBAC: unauthenticated → 401 ───────────────────────────────────────────────
+
+def test_no_token_on_camera_create_returns_401():
+    del app.dependency_overrides[get_current_user]
+    r = client.post("/api/cameras", json={"camera_id": "x", "name": "x", "rtsp_url": "rtsp://x"})
+    _as_admin()
+    assert r.status_code == 401
+
+
+def test_no_token_on_zone_create_returns_401():
+    del app.dependency_overrides[get_current_user]
+    r = client.post("/api/zones", json={"name": "Test", "polygon_coords": _VALID_POLY})
+    _as_admin()
+    assert r.status_code == 401
+
+
+# ── RBAC: VIEWER blocked from mutations → 403 ────────────────────────────────
+
+def test_viewer_cannot_create_camera():
+    _as_viewer()
+    r = client.post("/api/cameras", json={"camera_id": "x", "name": "x", "rtsp_url": "rtsp://x"})
+    _as_admin()
+    assert r.status_code == 403
+
+
+def test_viewer_cannot_delete_camera(_override_deps):
+    from unittest.mock import MagicMock
+    _override_deps.query.return_value.filter.return_value.first.return_value = MagicMock()
+    _as_viewer()
+    r = client.delete("/api/cameras/cam-01")
+    _as_admin()
+    assert r.status_code == 403
+
+
+def test_viewer_cannot_create_zone():
+    _as_viewer()
+    r = client.post("/api/zones", json={"name": "Zone", "polygon_coords": _VALID_POLY})
+    _as_admin()
+    assert r.status_code == 403
+
+
+def test_viewer_cannot_patch_incident():
+    _as_viewer()
+    r = client.patch(f"/api/incidents/{_INCIDENT_ID}", json={"status": "RESOLVED"})
+    _as_admin()
+    assert r.status_code == 403
+
+
+# ── RBAC: VIEWER allowed on read endpoints → 200 ─────────────────────────────
+
+def test_viewer_can_list_cameras():
+    _as_viewer()
+    r = client.get("/api/cameras")
+    _as_admin()
+    assert r.status_code == 200
+
+
+def test_viewer_can_list_zones():
+    _as_viewer()
+    r = client.get("/api/zones")
+    _as_admin()
+    assert r.status_code == 200
+
+
+def test_viewer_can_get_camera(_override_deps):
+    from unittest.mock import MagicMock
+    from datetime import datetime
+    cam = MagicMock()
+    cam.camera_id  = "cam-01"
+    cam.name       = "Front Gate"
+    cam.rtsp_url   = "rtsp://localhost/cam-01"
+    cam.zone_id    = None
+    cam.status     = "online"
+    cam.resolution = None
+    cam.fps        = 25
+    cam.created_at = datetime(2026, 1, 1)
+    cam.last_seen  = datetime(2026, 1, 1)
+    _override_deps.query.return_value.filter.return_value.first.return_value = cam
+    _as_viewer()
+    r = client.get("/api/cameras/cam-01")
+    _as_admin()
+    assert r.status_code == 200
