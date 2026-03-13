@@ -654,3 +654,47 @@ def test_viewer_can_get_camera(_override_deps):
     r = client.get("/api/cameras/cam-01")
     _as_admin()
     assert r.status_code == 200
+
+
+# ── GET /api/birdseye ─────────────────────────────────────────────────────────
+
+def test_birdseye_returns_503_when_no_renderer():
+    from unittest.mock import patch
+    with patch("workers.pipeline_worker.birdseye_renderer", None):
+        r = client.get("/api/birdseye")
+    assert r.status_code == 503
+
+
+def test_birdseye_returns_jpeg_when_renderer_set():
+    from unittest.mock import patch, MagicMock
+    from output.birdseye import BirdsEyeRenderer
+    renderer = BirdsEyeRenderer([{"camera_id": "cam-01", "name": "Test"}])
+    with patch("workers.pipeline_worker.birdseye_renderer", renderer):
+        r = client.get("/api/birdseye")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/jpeg"
+    assert r.content[:2] == b'\xff\xd8'
+
+
+# ── GET /api/recordings/{camera_id}/timeline ──────────────────────────────────
+
+def test_timeline_returns_200(_override_deps):
+    _override_deps.query.return_value.filter.return_value\
+        .order_by.return_value.all.return_value = []
+    r = client.get(
+        "/api/recordings/cam-01/timeline"
+        "?start=2026-01-01T00:00:00&end=2026-01-01T01:00:00"
+    )
+    assert r.status_code == 200
+
+
+def test_timeline_response_shape(_override_deps):
+    _override_deps.query.return_value.filter.return_value\
+        .order_by.return_value.all.return_value = []
+    body = client.get(
+        "/api/recordings/cam-01/timeline"
+        "?start=2026-01-01T00:00:00&end=2026-01-01T01:00:00"
+    ).json()
+    assert body["camera_id"] == "cam-01"
+    assert "markers"         in body
+    assert "range"           in body
