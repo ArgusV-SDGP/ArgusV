@@ -327,3 +327,131 @@ def test_delete_zone_not_found_returns_404(_override_deps):
     _override_deps.query.return_value.filter.return_value.first.return_value = None
     r = client.delete(f"/api/zones/{_ZONE_ID}")
     assert r.status_code == 404
+
+
+# ── Incident helpers ──────────────────────────────────────────────────────────
+
+_INCIDENT_ID = "11111111-2222-3333-4444-555555555555"
+
+
+def _make_incident_mock():
+    from unittest.mock import MagicMock
+    from datetime import datetime
+    import uuid
+    inc = MagicMock()
+    inc.incident_id   = uuid.UUID(_INCIDENT_ID)
+    inc.camera_id     = "cam-01"
+    inc.zone_id       = None
+    inc.zone_name     = "Front Gate"
+    inc.object_class  = "person"
+    inc.threat_level  = "HIGH"
+    inc.summary       = "Suspicious loitering detected"
+    inc.status        = "OPEN"
+    inc.detected_at   = datetime(2026, 1, 1, 12, 0, 0)
+    inc.resolved_at   = None
+    inc.metadata_json = {}
+    return inc
+
+
+# ── GET /api/incidents (list — lives in server.py, uses get_db_sync directly) ─
+# These endpoints call get_db_sync() inline, not via Depends(get_db),
+# so we patch at the source rather than using dependency overrides.
+
+def test_list_incidents_returns_200():
+    from unittest.mock import patch, MagicMock
+    db = MagicMock()
+    db.query.return_value.order_by.return_value.limit.return_value.all.return_value = []
+    with patch("db.connection.get_db_sync", return_value=db):
+        r = client.get("/api/incidents")
+    assert r.status_code == 200
+
+
+def test_list_incidents_returns_list():
+    from unittest.mock import patch, MagicMock
+    db = MagicMock()
+    db.query.return_value.order_by.return_value.limit.return_value.all.return_value = []
+    with patch("db.connection.get_db_sync", return_value=db):
+        assert isinstance(client.get("/api/incidents").json(), list)
+
+
+def test_list_incidents_filters_by_camera():
+    from unittest.mock import patch, MagicMock
+    db = MagicMock()
+    db.query.return_value.filter.return_value.order_by.return_value\
+        .limit.return_value.all.return_value = []
+    with patch("db.connection.get_db_sync", return_value=db):
+        r = client.get("/api/incidents?camera_id=cam-01")
+    assert r.status_code == 200
+
+
+# ── GET /api/incidents/{incident_id} ─────────────────────────────────────────
+
+def test_get_incident_not_found_returns_404(_override_deps):
+    _override_deps.query.return_value.filter.return_value.first.return_value = None
+    r = client.get(f"/api/incidents/{_INCIDENT_ID}")
+    assert r.status_code == 404
+
+
+def test_get_incident_returns_incident(_override_deps):
+    _override_deps.query.return_value.filter.return_value.first.return_value = _make_incident_mock()
+    r = client.get(f"/api/incidents/{_INCIDENT_ID}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["incident_id"]  == _INCIDENT_ID
+    assert body["threat_level"] == "HIGH"
+    assert body["status"]       == "OPEN"
+
+
+def test_get_incident_invalid_uuid_returns_400():
+    r = client.get("/api/incidents/not-a-uuid")
+    assert r.status_code == 400
+
+
+# ── PATCH /api/incidents/{incident_id} ───────────────────────────────────────
+
+def test_patch_incident_resolve(_override_deps):
+    inc = _make_incident_mock()
+    _override_deps.query.return_value.filter.return_value.first.return_value = inc
+    r = client.patch(f"/api/incidents/{_INCIDENT_ID}", json={"status": "RESOLVED"})
+    assert r.status_code == 200
+
+
+def test_patch_incident_invalid_status(_override_deps):
+    _override_deps.query.return_value.filter.return_value.first.return_value = _make_incident_mock()
+    r = client.patch(f"/api/incidents/{_INCIDENT_ID}", json={"status": "INVALID"})
+    assert r.status_code == 400
+
+
+def test_patch_incident_not_found_returns_404(_override_deps):
+    _override_deps.query.return_value.filter.return_value.first.return_value = None
+    r = client.patch(f"/api/incidents/{_INCIDENT_ID}", json={"status": "RESOLVED"})
+    assert r.status_code == 404
+
+
+# ── GET /api/detections ───────────────────────────────────────────────────────
+
+def test_list_detections_returns_200():
+    from unittest.mock import patch, MagicMock
+    db = MagicMock()
+    db.query.return_value.order_by.return_value.limit.return_value.all.return_value = []
+    with patch("db.connection.get_db_sync", return_value=db):
+        r = client.get("/api/detections")
+    assert r.status_code == 200
+
+
+def test_list_detections_returns_list():
+    from unittest.mock import patch, MagicMock
+    db = MagicMock()
+    db.query.return_value.order_by.return_value.limit.return_value.all.return_value = []
+    with patch("db.connection.get_db_sync", return_value=db):
+        assert isinstance(client.get("/api/detections").json(), list)
+
+
+def test_list_detections_threats_only_filter():
+    from unittest.mock import patch, MagicMock
+    db = MagicMock()
+    db.query.return_value.filter.return_value.order_by.return_value\
+        .limit.return_value.all.return_value = []
+    with patch("db.connection.get_db_sync", return_value=db):
+        r = client.get("/api/detections?threats_only=true")
+    assert r.status_code == 200
