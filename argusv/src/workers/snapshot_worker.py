@@ -31,7 +31,6 @@ async def snapshot_worker():
     """
     Listens on a snapshot queue (tapped from raw_detections).
     For every START event with an embedded frame → save thumbnail.
-    Task REC-14
     """
     logger.info("📸 [Snapshot] Worker started")
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
@@ -52,7 +51,6 @@ def save_snapshot(event: dict) -> str | None:
     """
     Synchronous helper: decode frame, crop bbox, save JPEG.
     Returns local path or None on failure.
-    Task REC-14
     """
     frame_b64 = event.get("trigger_frame_b64")
     if not frame_b64:
@@ -94,7 +92,7 @@ def save_snapshot(event: dict) -> str | None:
 
 async def clip_generation_worker():
     """
-    Task REC-15: Listen for GENERATE_CLIP events and stitch segments.
+    Listen for GENERATE_CLIP events and stitch segments.
     """
     logger.info("🎬 [ClipGenerator] Worker started")
     CLIPS_DIR.mkdir(parents=True, exist_ok=True)

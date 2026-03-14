@@ -152,7 +152,7 @@ class Detection(Base):
 
     camera_rel   = relationship("Camera",   back_populates="detections")
     segment      = relationship("Segment",  back_populates="detections")
-    incident     = relationship("Incident", foreign_keys=[incident_id])
+    incident     = relationship("Incident", foreign_keys=[incident_id], overlaps="detections")
 
 
 class NotificationRule(Base):
