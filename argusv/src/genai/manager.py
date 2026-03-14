@@ -48,13 +48,26 @@ def _build_prompts(event: dict) -> tuple[str, str]:
 
 
 def _parse_vlm_json(text: str) -> dict:
-    """Extract and parse the JSON object from raw LLM output."""
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if m:
+    """Extract and parse the JSON object from raw LLM output.
+
+    Handles markdown fences (```json...``` or ```...```), then uses
+    JSONDecoder.raw_decode to find the first valid JSON object, avoiding
+    greedy over-matching when the model includes preamble or trailing
+    explanation around the JSON block.
+    """
+    # Strip both opening (```json or ```) and closing (```) fences
+    cleaned = re.sub(r"```(?:json)?\s*|```", "", text).strip()
+
+    # Use JSONDecoder to scan for the first valid object from the first '{'
+    idx = cleaned.find("{")
+    if idx >= 0:
         try:
-            return json.loads(m.group())
+            obj, _ = json.JSONDecoder().raw_decode(cleaned, idx)
+            if isinstance(obj, dict):
+                return obj
         except json.JSONDecodeError:
             pass
+
     return {"threat_level": "MEDIUM", "is_threat": True, "summary": text[:200].strip()}
 
 
@@ -63,6 +76,10 @@ def _parse_vlm_json(text: str) -> dict:
 class GenAIProvider(Protocol):
     async def describe(self, event: dict) -> dict:
         """Return {"threat_level":..., "is_threat":..., "summary":...}"""
+        ...
+
+    async def complete_chat(self, messages: list[dict]) -> str:
+        """Return a text reply for a chat/completions request."""
         ...
 
 
@@ -74,6 +91,26 @@ class OpenAIProvider:
     async def describe(self, event: dict) -> dict:
         from workers.pipeline_worker import _call_openai
         return await _call_openai(event)
+
+    async def complete_chat(self, messages: list[dict]) -> str:
+        if not cfg.OPENAI_API_KEY:
+            raise ValueError("OPENAI_API_KEY is not configured")
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {cfg.OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": cfg.VLM_MODEL,
+                    "messages": messages,
+                    "max_tokens": 512,
+                    "temperature": 0.3,
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"].strip()
 
 
 # ── Gemini ────────────────────────────────────────────────────────────────────
@@ -142,8 +179,31 @@ class GeminiProvider:
 
         return _parse_vlm_json(content)
 
+    async def complete_chat(self, messages: list[dict]) -> str:
+        if not cfg.GEMINI_API_KEY:
+            raise ValueError("GEMINI_API_KEY is not configured")
+        # Convert OpenAI-style messages to Gemini's contents format
+        contents = []
+        for msg in messages:
+            role = "user" if msg["role"] != "assistant" else "model"
+            contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{self._BASE}/{cfg.GEMINI_VISION_MODEL}:generateContent",
+                params={"key": cfg.GEMINI_API_KEY},
+                json={"contents": contents},
+            )
+            resp.raise_for_status()
+            return (
+                resp.json()
+                .get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", "")
+                .strip()
+            )
 
-# ── Ollama ────────────────────────────────────────────────────────────────────
+
 
 class OllamaProvider:
     """
@@ -179,6 +239,23 @@ class OllamaProvider:
             return {"threat_level": "UNKNOWN", "is_threat": False, "summary": str(e)[:100]}
 
         return _parse_vlm_json(text)
+
+    async def complete_chat(self, messages: list[dict]) -> str:
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(
+                    f"{cfg.OLLAMA_BASE_URL}/api/chat",
+                    json={
+                        "model": cfg.OLLAMA_MODEL,
+                        "messages": messages,
+                        "stream": False,
+                    },
+                )
+                resp.raise_for_status()
+                return resp.json().get("message", {}).get("content", "").strip()
+        except httpx.ConnectError:
+            logger.error(f"[Ollama] Cannot connect to {cfg.OLLAMA_BASE_URL}")
+            raise ValueError("Ollama unreachable")
 
 
 # ── LlamaCpp ──────────────────────────────────────────────────────────────────
@@ -227,6 +304,26 @@ class LlamaCppProvider:
 
         return _parse_vlm_json(text)
 
+    async def complete_chat(self, messages: list[dict]) -> str:
+        payload: dict = {
+            "messages": messages,
+            "max_tokens": 512,
+            "temperature": 0.3,
+        }
+        if cfg.LLAMACPP_MODEL:
+            payload["model"] = cfg.LLAMACPP_MODEL
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                resp = await client.post(
+                    f"{cfg.LLAMACPP_BASE_URL}/v1/chat/completions",
+                    json=payload,
+                )
+                resp.raise_for_status()
+                return resp.json()["choices"][0]["message"]["content"].strip()
+        except httpx.ConnectError:
+            logger.error(f"[LlamaCpp] Cannot connect to {cfg.LLAMACPP_BASE_URL}")
+            raise ValueError("LlamaCpp unreachable")
+
 
 # ── Disabled ──────────────────────────────────────────────────────────────────
 
@@ -237,6 +334,9 @@ class DisabledProvider:
             "is_threat": False,
             "summary": "GenAI disabled (GENAI_PROVIDER=disabled)",
         }
+
+    async def complete_chat(self, messages: list[dict]) -> str:
+        raise ValueError("GenAI disabled (GENAI_PROVIDER=disabled)")
 
 
 # ── Factory ───────────────────────────────────────────────────────────────────
