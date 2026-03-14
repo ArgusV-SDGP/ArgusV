@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 import config as cfg
 from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
 from db.connection import get_db
-from db.models import Zone
+from db.models import Camera, Incident, Zone
 
 router = APIRouter(prefix="/api/zones", tags=["zones"])
 logger = logging.getLogger("api.zones")
@@ -49,6 +49,7 @@ def _parse_zone(zone: Zone) -> dict[str, Any]:
         "dwell_threshold_sec": zone.dwell_threshold_sec,
         "active": zone.active,
         "created_at": zone.created_at.isoformat() if zone.created_at else None,
+        "updated_at": zone.updated_at.isoformat() if zone.updated_at else None,
     }
 
 
@@ -84,10 +85,10 @@ def _validate_polygon(points: list[list[float]]) -> list[list[float]]:
         raise HTTPException(400, "polygon_coords must contain at least 3 distinct points")
 
     polygon = Polygon(normalized)
-    if polygon.area <= 0:
-        raise HTTPException(400, "polygon_coords area must be greater than 0")
     if not polygon.is_valid:
         raise HTTPException(400, "polygon_coords must not self-intersect")
+    if polygon.area <= 0:
+        raise HTTPException(400, "polygon_coords area must be greater than 0")
 
     return normalized
 
@@ -183,6 +184,7 @@ def update_zone(
     zone.zone_type = payload.zone_type
     zone.dwell_threshold_sec = payload.dwell_threshold_sec
     zone.active = payload.active
+    zone.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
     db.refresh(zone)
     zone_data = _parse_zone(zone)
@@ -202,7 +204,7 @@ def patch_zone(
     if not zone:
         raise HTTPException(404, "Zone not found")
 
-    data = payload.dict(exclude_unset=True)
+    data = payload.model_dump(exclude_unset=True)
     if "name" in data and data["name"] is not None:
         zone.name = data["name"].strip()
     if "polygon_coords" in data and data["polygon_coords"] is not None:
@@ -214,6 +216,7 @@ def patch_zone(
     if "active" in data and data["active"] is not None:
         zone.active = data["active"]
 
+    zone.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
     db.refresh(zone)
     zone_data = _parse_zone(zone)
@@ -231,6 +234,21 @@ def delete_zone(
     zone = db.query(Zone).filter(Zone.zone_id == zid).first()
     if not zone:
         raise HTTPException(404, "Zone not found")
+
+    camera_count = db.query(Camera).filter(Camera.zone_id == zid).count()
+    if camera_count:
+        raise HTTPException(
+            409,
+            f"Zone has {camera_count} camera(s) assigned. Reassign or unset their zone before deleting.",
+        )
+
+    incident_count = db.query(Incident).filter(Incident.zone_id == zid).count()
+    if incident_count:
+        raise HTTPException(
+            409,
+            f"Zone has {incident_count} incident(s) referencing it. Resolve or reassign incidents before deleting.",
+        )
+
     db.delete(zone)
     db.commit()
     _publish_zone_update(zone_id, "deleted")

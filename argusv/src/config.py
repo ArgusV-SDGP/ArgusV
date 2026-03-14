@@ -65,13 +65,30 @@ LOCAL_RECORDINGS_DIR   = os.getenv("LOCAL_RECORDINGS_DIR", "./recordings")
 
 
 
-# ── VLM ─────────────────────────────────────────────────────────────────────── #
+# ── VLM / GenAI ─────────────────────────────────────────────────────────────── #
 
+# Active provider: openai | gemini | ollama | llamacpp | disabled
+GENAI_PROVIDER    = os.getenv("GENAI_PROVIDER",   "openai")
+
+# OpenAI
 OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY", "")
 VLM_MODEL         = os.getenv("VLM_MODEL",        "gpt-4o")
 VLM_TRIAGE_MODEL  = os.getenv("VLM_TRIAGE_MODEL", "gpt-4o-mini")
 USE_TIERED_VLM    = os.getenv("USE_TIERED_VLM", "true").lower() == "true"
 VLM_MAX_WORKERS   = int(os.getenv("VLM_MAX_WORKERS", "3"))
+
+# Gemini
+GEMINI_API_KEY          = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL            = os.getenv("GEMINI_MODEL",        "gemini-2.0-flash")
+GEMINI_VISION_MODEL     = os.getenv("GEMINI_VISION_MODEL", "gemini-1.5-pro")
+
+# Ollama (local)
+OLLAMA_BASE_URL  = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
+OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL",    "llava")   # vision-capable model
+
+# LlamaCpp (OpenAI-compatible server)
+LLAMACPP_BASE_URL = os.getenv("LLAMACPP_BASE_URL", "http://llamacpp:8080")
+LLAMACPP_MODEL    = os.getenv("LLAMACPP_MODEL",    "llava")
 
 
 

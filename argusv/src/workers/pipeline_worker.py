@@ -53,7 +53,7 @@ async def stream_ingestion_worker():
             needs_vlm = (
                 event_type in ("START", "LOITERING") and
                 confidence >= cfg.CONF_THRESHOLD and
-                bool(cfg.OPENAI_API_KEY)
+                cfg.GENAI_PROVIDER != "disabled"
             )
 
             # Always push to WebSocket immediately (fast alert path)
@@ -112,9 +112,10 @@ async def vlm_inference_worker():
 
 
 async def _run_vlm(event: dict):
+    from genai.manager import provider as genai_provider
     async with _vlm_semaphore:
         try:
-            result = await _call_openai(event)
+            result = await genai_provider.describe(event)
             await bus.vlm_results.put({**event, "vlm": result})
 
             # Live update to dashboard with VLM result
