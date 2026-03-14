@@ -23,8 +23,9 @@ from db.models import Segment
 
 logger = logging.getLogger("snapshot-worker")
 
-SNAPSHOT_DIR = Path("/recordings/snapshots")
-CLIPS_DIR = Path("/recordings/clips")
+LOCAL_RECORDINGS_DIR = Path(os.getenv("LOCAL_RECORDINGS_DIR", "/recordings"))
+SNAPSHOT_DIR = LOCAL_RECORDINGS_DIR / "snapshots"
+CLIPS_DIR = LOCAL_RECORDINGS_DIR / "clips"
 
 async def snapshot_worker():
     """
