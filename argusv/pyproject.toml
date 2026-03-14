@@ -6,25 +6,20 @@ dependencies = [
     # Web framework
     "fastapi",
     "uvicorn[standard]",
-
     # Computer vision + detection
     "ultralytics",              # YOLOv8 + ByteTrack
     "opencv-python-headless",
     "shapely",                  # Zone polygon matching
-
     # Database
     "sqlalchemy",
     "pgvector",                 # Vector similarity search (pgvector SQLAlchemy type)
     "psycopg2-binary",          # PostgreSQL driver (sync)
     "asyncpg",                  # PostgreSQL driver (async pipeline workers)
     "alembic",                  # DB migrations
-
     # Cache / pub-sub
     "redis",
-
     # VLM + notifications
     "httpx",                    # async HTTP for OpenAI + Slack
-
     # Utilities
     "python-dotenv",
     "pydantic",
