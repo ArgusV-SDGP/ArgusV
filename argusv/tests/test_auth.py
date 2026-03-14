@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from auth import jwt_handler
 from auth.passwords import hash_password, verify_password
 from api.routes import auth as auth_routes
+from api.routes import users as users_routes
 
 
 def test_access_token_create_and_verify():
@@ -122,3 +123,106 @@ def test_register_user_creates_viewer(monkeypatch):
     assert result["username"] == "newuser"
     assert result["role"] == "VIEWER"
     assert result["is_active"] is True
+
+
+def test_admin_can_create_operator_user(monkeypatch):
+    class FakeQuery:
+        def filter(self, *_args, **_kwargs):
+            return self
+
+        def first(self):
+            return None
+
+    class FakeDb:
+        def query(self, _model):
+            return FakeQuery()
+
+        def add(self, _item):
+            return None
+
+        def commit(self):
+            return None
+
+        def refresh(self, item):
+            if not item.user_id:
+                item.user_id = uuid.uuid4()
+            if not item.created_at:
+                item.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    monkeypatch.setattr(users_routes.cfg, "AUTH_USERS", {})
+    result = users_routes.create_user(
+        users_routes.UserCreate(username="ops1", password="StrongPass123", role="operator"),
+        db=FakeDb(),
+        _user={"username": "admin", "role": "ADMIN"},
+    )
+    assert result["username"] == "ops1"
+    assert result["role"] == "OPERATOR"
+    assert result["is_active"] is True
+
+
+def test_admin_can_promote_viewer_to_admin():
+    class FakeUser:
+        user_id = uuid.uuid4()
+        username = "viewer1"
+        password_hash = hash_password("StrongPass123")
+        role = "VIEWER"
+        is_active = True
+        created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    class FakeQuery:
+        def filter(self, *_args, **_kwargs):
+            return self
+
+        def first(self):
+            return user
+
+    class FakeDb:
+        def query(self, _model):
+            return FakeQuery()
+
+        def commit(self):
+            return None
+
+        def refresh(self, _item):
+            return None
+
+    user = FakeUser()
+    result = users_routes.update_user(
+        str(user.user_id),
+        users_routes.UserPatch(role="ADMIN", is_active=True),
+        db=FakeDb(),
+        admin_user={"username": "rootadmin", "role": "ADMIN"},
+    )
+    assert result["role"] == "ADMIN"
+    assert user.role == "ADMIN"
+
+
+def test_admin_cannot_demote_self():
+    class FakeUser:
+        user_id = uuid.uuid4()
+        username = "admin"
+        password_hash = hash_password("StrongPass123")
+        role = "ADMIN"
+        is_active = True
+        created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    class FakeQuery:
+        def filter(self, *_args, **_kwargs):
+            return self
+
+        def first(self):
+            return user
+
+    class FakeDb:
+        def query(self, _model):
+            return FakeQuery()
+
+    user = FakeUser()
+    with pytest.raises(HTTPException) as exc:
+        users_routes.update_user(
+            str(user.user_id),
+            users_routes.UserPatch(role="VIEWER"),
+            db=FakeDb(),
+            admin_user={"username": "admin", "role": "ADMIN"},
+        )
+    assert exc.value.status_code == 400

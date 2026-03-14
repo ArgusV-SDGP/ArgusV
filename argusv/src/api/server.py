@@ -29,6 +29,7 @@ from api.routes.incidents import router as incidents_router
 from api.routes.recordings import router as recordings_router
 from api.routes.configuration import router as configuration_router
 from api.routes.rag import router as rag_router
+from api.routes.users import router as users_router
 from workers.edge_worker import start_cameras, stop_cameras, cameras_health
 from workers.pipeline_worker import (
     stream_ingestion_worker,
@@ -92,6 +93,7 @@ app.include_router(zones_router)
 app.include_router(incidents_router)
 app.include_router(recordings_router)
 app.include_router(configuration_router)
+app.include_router(users_router)
 app.include_router(rag_router)
 
 # ── Mount static & media files ────────────────────────────────────────────────
