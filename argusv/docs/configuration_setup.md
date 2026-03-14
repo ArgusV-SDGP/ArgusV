@@ -6,7 +6,7 @@
 - Start infra with `docker-compose.dev.yml`
 - Run FastAPI app locally with `uvicorn`
 - Host ports:
-  - Postgres `localhost:5433`
+  - Postgres `localhost:5434`
   - Redis `localhost:6380`
   - MediaMTX RTSP `localhost:8554`, HLS `localhost:8888`
 
@@ -79,7 +79,7 @@ cp .env.example .env
 
 ### Recommended `.env` for Profile A (local app + docker infra)
 ```env
-POSTGRES_URL=postgresql://argus:password@localhost:5433/argus_db
+POSTGRES_URL=postgresql://argus:password@localhost:5434/argus_db
 REDIS_URL=redis://localhost:6380/0
 CAMERA_ID=cam-01
 RTSP_URL=rtsp://localhost:8554/cam-01
@@ -155,18 +155,27 @@ Use these minimum settings:
 ## 8) Common Misconfiguration Issues
 
 1. `POSTGRES_URL` points to `postgres` while running app locally
-- Fix: use `localhost:5433`
+- Fix: use `localhost:5434`
 
-2. `REDIS_URL` points to `redis` while running app locally
+2. `extension "vector" is not available` during Alembic upgrade
+- Cause: Postgres container/image does not include pgvector.
+- Fix:
+```bash
+docker compose -f docker-compose.dev.yml down -v
+docker compose -f docker-compose.dev.yml up -d
+alembic upgrade head
+```
+
+3. `REDIS_URL` points to `redis` while running app locally
 - Fix: use `localhost:6380`
 
-3. Camera stream unavailable
+4. Camera stream unavailable
 - Check MediaMTX is running and RTSP URL path exists
 
-4. No VLM results
+5. No VLM results
 - Check `OPENAI_API_KEY` and outbound network access
 
-5. Recordings not linked to replay
+6. Recordings not linked to replay
 - Ensure `RECORDINGS_ENABLED=true` and segment DB write tasks are complete
 
 ## 9) Security and Secret Handling

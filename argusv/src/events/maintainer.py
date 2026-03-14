@@ -14,7 +14,7 @@ Tasks: PIPE-01, REC-13, REC-14
 import asyncio
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 logger = logging.getLogger("events.maintainer")
@@ -65,14 +65,60 @@ class EventMaintainer:
     async def _finalize_event(self, ev: dict):
         """
         Called when track disappears.
-        TODO: lock segment, generate clip, update Detection row.
+        Locks overlapping segments and updates Detection mappings.
         """
+        from db.connection import get_db_session
+        from db.models import Segment, Detection
+        from sqlalchemy.future import select
+
         dwell = ev.get("dwell_sec", 0)
+        camera_id = ev.get("camera_id")
+        event_id = ev.get("event_id")
+        # Handle time safely if keys exist
+        started_at = datetime.fromtimestamp(ev.get("started_at", time.time()), timezone.utc).replace(tzinfo=None)
+        ended_at   = datetime.fromtimestamp(ev.get("ended_at", time.time()), timezone.utc).replace(tzinfo=None)
+
         logger.info(f"[Events] END track={ev.get('track_id')} "
                     f"class={ev.get('object_class')} dwell={dwell}s")
-        # TODO REC-13: trigger clip generation for this event
-        # TODO REC-15: ensure thumbnail_url is set on Detection row
-        # TODO: set Segment.locked=True for segments covering this event
+
+        # Finalize event: Lock segments and update DB
+        async with get_db_session() as db:
+            stmt = select(Segment).where(
+                Segment.camera_id == camera_id,
+                Segment.end_time >= started_at,
+                Segment.start_time <= ended_at
+            )
+            res = await db.execute(stmt)
+            segments = res.scalars().all()
+            
+            for s in segments:
+                s.locked = True
+                s.has_detections = True
+                s.detection_count = (s.detection_count or 0) + 1
+
+            if event_id and segments:
+                stmt_det = select(Detection).where(Detection.event_id == event_id)
+                res_det = await db.execute(stmt_det)
+                det = res_det.scalars().first()
+                if det:
+                    det.segment_id = segments[0].segment_id
+                    det.thumbnail_url = f"/api/incidents/{event_id}/thumbnail.jpg"
+            await db.commit()
+
+        # REC-13: trigger clip generation for this event
+        from bus import bus
+        await bus.clips.put({
+            "action_type": "GENERATE_CLIP",
+            "event_id": event_id,
+            "camera_id": camera_id,
+        })
+        
+        # Trigger Semantic Analysis (RAG vectoring)
+        await bus.rag_indexing.put({
+            "event_id": event_id,
+            "camera_id": camera_id,
+            "timestamp": started_at.isoformat()
+        })
 
     def flush_all(self):
         """Call on shutdown to finalize all open events."""

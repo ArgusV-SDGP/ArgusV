@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>HLS Stream Tester</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: #0a0c10;
+            color: #e2e8f0;
+            font-family: monospace;
+            padding: 24px;
+        }
+
+        h1 {
+            margin-bottom: 16px;
+            font-size: 16px;
+            color: #94a3b8;
+        }
+
+        .row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        input {
+            flex: 1;
+            padding: 8px 12px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            color: #e2e8f0;
+            font-family: monospace;
+            font-size: 13px;
+        }
+
+        button {
+            padding: 8px 16px;
+            background: #3b82f6;
+            border: none;
+            border-radius: 6px;
+            color: white;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        button:hover {
+            background: #2563eb;
+        }
+
+        video {
+            width: 100%;
+            max-width: 960px;
+            background: #000;
+            border-radius: 8px;
+            border: 1px solid #1e293b;
+            display: block;
+            margin-bottom: 16px;
+        }
+
+        #log {
+            background: #0f172a;
+            border: 1px solid #1e293b;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 12px;
+            line-height: 1.8;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        .ok {
+            color: #86efac;
+        }
+
+        .err {
+            color: #fda4af;
+        }
+
+        .inf {
+            color: #93c5fd;
+        }
+
+        .warn {
+            color: #fde68a;
+        }
+
+        .presets {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+
+        .preset {
+            padding: 4px 10px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            color: #94a3b8;
+        }
+
+        .preset:hover {
+            border-color: #3b82f6;
+            color: #3b82f6;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🎥 ArgusV — HLS Stream Tester</h1>
+
+    <div class="presets">
+        <span class="preset" onclick="setUrl('http://localhost:8888/cam-01/index.m3u8')">cam-01 (Docker MediaMTX)</span>
+        <span class="preset" onclick="setUrl('http://localhost:8888/cam2/index.m3u8')">cam2 (Docker MediaMTX)</span>
+        <span class="preset" onclick="setUrl('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8')">Public test
+            stream</span>
+    </div>
+
+    <div class="row">
+        <input id="url" type="text" value="http://localhost:8888/cam-01/index.m3u8" placeholder="HLS URL" />
+        <button onclick="loadStream()">▶ Play</button>
+        <button onclick="stopStream()" style="background:#ef4444">■ Stop</button>
+    </div>
+
+    <video id="video" controls muted playsinline></video>
+
+    <div id="log">Ready. Press ▶ Play to test a stream.\n</div>
+
+    <script>
+        let hls = null;
+        const video = document.getElementById('video');
+        const logEl = document.getElementById('log');
+
+        function log(msg, cls = 'inf') {
+            const t = new Date().toLocaleTimeString();
+            logEl.innerHTML += `<span class="${cls}">[${t}] ${msg}\n</span>`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function setUrl(url) {
+            document.getElementById('url').value = url;
+        }
+
+        async function checkUrl(url) {
+            try {
+                const r = await fetch(url, { method: 'HEAD' });
+                log(`HEAD ${url} → ${r.status} ${r.statusText}`, r.ok ? 'ok' : 'err');
+                return r.ok;
+            } catch (e) {
+                log(`HEAD ${url} → FAILED: ${e.message}`, 'err');
+                return false;
+            }
+        }
+
+        async function loadStream() {
+            const url = document.getElementById('url').value.trim();
+            if (!url) return;
+
+            stopStream();
+            log(`Testing: ${url}`, 'inf');
+
+            // First do a raw HTTP check
+            const reachable = await checkUrl(url);
+            if (!reachable) {
+                log('❌ URL not reachable. Check:\n  1. Is processor.py running?\n  2. Is MediaMTX up?\n  3. Did FFmpeg successfully connect to port 8554?', 'err');
+                return;
+            }
+
+            log('✅ URL reachable — loading with hls.js...', 'ok');
+
+            if (Hls.isSupported()) {
+                hls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    liveSyncDurationCount: 2,
+                    manifestLoadingMaxRetry: 3,
+                    manifestLoadingRetryDelay: 1000,
+                    debug: false,
+                });
+
+                hls.loadSource(url);
+                hls.attachMedia(video);
+
+                hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
+                    log(`✅ Manifest parsed — ${data.levels.length} quality level(s)`, 'ok');
+                    video.play().catch(() => log('Auto-play blocked by browser — click video to play', 'warn'));
+                });
+
+                hls.on(Hls.Events.FRAG_LOADED, (e, data) => {
+                    log(`📦 Segment loaded: ${data.frag.url.split('/').pop()} (${(data.frag.stats.total / 1024).toFixed(1)} KB)`, 'ok');
+                });
+
+                hls.on(Hls.Events.ERROR, (e, data) => {
+                    const msg = `${data.type} / ${data.details}`;
+                    if (data.fatal) {
+                        log(`❌ FATAL: ${msg} — ${data.error?.message || ''}`, 'err');
+                        hls.destroy();
+                    } else {
+                        log(`⚠️ ${msg}`, 'warn');
+                    }
+                });
+
+                hls.on(Hls.Events.LEVEL_LOADED, (e, data) => {
+                    log(`📋 Playlist loaded: ${data.details.fragments.length} fragments, live=${data.details.live}`, 'inf');
+                });
+
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                log('Using native HLS (Safari)', 'inf');
+                video.src = url;
+                video.play();
+            } else {
+                log('❌ HLS not supported in this browser', 'err');
+            }
+        }
+
+        function stopStream() {
+            if (hls) { hls.destroy(); hls = null; }
+            video.pause();
+            video.removeAttribute('src');
+            video.load();
+            log('Stream stopped.', 'warn');
+        }
+
+        // Auto-test on load
+        window.onload = async () => {
+            log('Checking MediaMTX health...', 'inf');
+            try {
+                const r = await fetch('http://localhost:9997/v3/paths/list');
+                if (r.ok) {
+                    const d = await r.json();
+                    const paths = d.items || [];
+                    if (paths.length === 0) {
+                        log('⚠️ MediaMTX has NO active streams. Start processor.py first!', 'warn');
+                    } else {
+                        paths.forEach(p => log(`📡 Stream: ${p.name}  ready=${p.ready}`, p.ready ? 'ok' : 'warn'));
+                    }
+                } else {
+                    log('⚠️ MediaMTX API not reachable at port 9997', 'warn');
+                }
+            } catch {
+                log('⚠️ MediaMTX API port 9997 not accessible from browser (CORS). Use curl instead.', 'warn');
+            }
+        };
+    </script>
+</body>
+
+</html>

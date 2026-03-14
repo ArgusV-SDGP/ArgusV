@@ -10,14 +10,19 @@ All three stages run in the same event loop — no network hops.
 import asyncio
 import logging
 import time
+from datetime import datetime, timezone
 import json
 import base64
 from typing import Optional
 
 import config as cfg
 from bus import bus
+from events.maintainer import EventMaintainer
 
 logger = logging.getLogger("pipeline-worker")
+
+# Global maintainer to track object lifecycles across all cameras
+maintainer = EventMaintainer()
 
 
 # ── Stage 1: VLM Request Builder ─────────────────────────────────────────────
@@ -37,7 +42,14 @@ async def stream_ingestion_worker():
             event_type = event.get("event_type", "DETECTED")
             confidence = event.get("confidence", 0.0)
 
-            # Decide whether VLM analysis is needed
+            # 1. Update Lifecycle Maintainer (Locks segments, triggers clips on END)
+            await maintainer.process(event)
+
+            # 2. Tap START events into the snapshot worker
+            if event_type == "START" and event.get("trigger_frame_b64"):
+                await bus.snapshots.put(event)
+
+            # 3. Decide whether VLM analysis is needed
             needs_vlm = (
                 event_type in ("START", "LOITERING") and
                 confidence >= cfg.CONF_THRESHOLD and
@@ -56,8 +68,20 @@ async def stream_ingestion_worker():
             if needs_vlm:
                 await bus.vlm_requests.put(event)
             else:
-                # No VLM → push final result straight to actions
-                if event.get("confidence", 0) >= 0.6:
+                # No VLM → We STILL need to log it in the DB via Decision Engine
+                # if it's a high-confidence start or loiter
+                if event_type in ("START", "LOITERING", "DETECTED") and confidence >= cfg.CONF_THRESHOLD:
+                     await bus.vlm_results.put({
+                         **event, 
+                         "vlm": {
+                             "threat_level": "LOW",
+                             "is_threat": False,
+                             "summary": "Motion detected (No VLM analysis)"
+                         }
+                     })
+                
+                # Forward to simple action log
+                if confidence >= cfg.CONF_THRESHOLD:
                     await bus.actions.put({
                         **event,
                         "action_type":  "LOG",
@@ -215,7 +239,7 @@ async def decision_engine_worker():
 async def _process_decision(event: dict):
     from db.connection import get_db_session
     from db.models import Detection, Incident, Segment
-    from datetime import datetime
+    from datetime import datetime, timezone
     import uuid
 
     vlm = event.get("vlm", {})
@@ -227,7 +251,7 @@ async def _process_decision(event: dict):
         det = Detection(
             event_id     = event.get("event_id"),
             camera_id    = event.get("camera_id"),
-            detected_at  = datetime.utcfromtimestamp(event.get("timestamp", time.time())),
+            detected_at  = datetime.fromtimestamp(event.get("timestamp", time.time()), timezone.utc).replace(tzinfo=None),
             object_class = event.get("object_class", ""),
             confidence   = event.get("confidence", 0.0),
             zone_id      = event.get("zone_id"),

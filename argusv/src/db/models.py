@@ -20,6 +20,7 @@ from sqlalchemy import (
     ForeignKey, Integer, Text, BigInteger, Index,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime
 import uuid
@@ -146,10 +147,11 @@ class Detection(Base):
     is_threat    = Column(Boolean, nullable=True)
     threat_level = Column(String,  nullable=True)
     vlm_summary  = Column(Text,    nullable=True)
+    vlm_embedding= Column(Vector(384), nullable=True) # Semantic search vector
 
     camera_rel   = relationship("Camera",   back_populates="detections")
     segment      = relationship("Segment",  back_populates="detections")
-    incident     = relationship("Incident", foreign_keys=[incident_id])
+    incident     = relationship("Incident", foreign_keys=[incident_id], overlaps="detections")
 
 
 class NotificationRule(Base):

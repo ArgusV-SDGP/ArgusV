@@ -4,25 +4,25 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-    <title>ArgusV — Recordings</title>
+    <title>ArgusV — NVR Recordings</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
         rel="stylesheet" />
-    <!-- HLS.js for browser HLS playback -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
-        /* TODO DNVR-01: Full NVR recordings page
-       Tasks to implement:
-         DNVR-01  page shell + camera selector + date picker
-         DNVR-02  HLS.js player wired to /api/recordings/{cam}/playlist
-         DNVR-03  24-hour timeline bar with click-to-jump
-         DNVR-04  Detection blips (orange/red) on seek bar
-         DNVR-05  Bounding box overlay on video at playback position
-         DNVR-06  Events-only toggle (filter segments with detections)
-         DNVR-07  Clip download button
-         DNVR-08  Incident replay from card
-    */
+        :root {
+            --bg: #090a0f;
+            --surface: rgba(20, 22, 28, 0.6);
+            --surface-hover: rgba(30, 33, 42, 0.8);
+            --border: rgba(255, 255, 255, 0.08);
+            --text: #e2e8f0;
+            --muted: #94a3b8;
+            --accent: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.5);
+            --danger: #ef4444;
+            --warning: #f59e0b;
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
@@ -31,68 +31,593 @@
 
         body {
             font-family: 'Inter', sans-serif;
-            background: #0a0c10;
-            color: #e2e8f0;
+            background: var(--bg);
+            color: var(--text);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+            background-image:
+                radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.03), transparent 25%),
+                radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.03), transparent 25%);
+        }
+
+        /* Navbar / Header */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 32px;
+            background: rgba(10, 12, 16, 0.8);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 18px;
+            font-weight: 700;
+            text-decoration: none;
+            color: white;
+        }
+
+        .brand-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            border-radius: 8px;
+            display: flex;
             align-items: center;
             justify-content: center;
-            gap: 16px;
         }
 
-        h1 {
-            font-size: 24px;
-            font-weight: 700;
+        .controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
         }
 
-        p {
-            color: #64748b;
-            font-size: 14px;
-        }
-
-        a {
-            color: #3b82f6;
-            text-decoration: none;
-        }
-
-        .badge {
-            background: #1a1d24;
-            border: 1px solid rgba(255, 255, 255, 0.07);
+        select,
+        input[type="date"],
+        button {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px 14px;
             border-radius: 8px;
-            padding: 24px 32px;
-            text-align: center;
-            max-width: 400px;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            outline: none;
+            transition: all 0.2s ease;
         }
 
-        .task {
-            font-family: 'JetBrains Mono';
-            font-size: 11px;
-            color: #f97316;
-            margin-top: 8px;
+        select:focus,
+        input[type="date"]:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--accent-glow);
+        }
+
+        button {
+            cursor: pointer;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        button:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        button.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+
+        /* Main Content */
+        main {
+            flex: 1;
+            padding: 24px 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            max-width: 1600px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .nvr-container {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* Video Player Wrapper */
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        canvas#bbox-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            /* Let clicks pass through to video */
+        }
+
+        .video-overlay-info {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(8px);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            background: #ef4444;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #ef4444;
+        }
+
+        /* Timeline */
+        .timeline-wrapper {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .timeline-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: var(--muted);
+            font-weight: 500;
+        }
+
+        .timeline-track-container {
+            position: relative;
+            height: 48px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 8px;
+            cursor: crosshair;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .timeline-ruler {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+            background-size: 4.166% 100%;
+            /* 24 hours */
+        }
+
+        .timeline-blip {
+            position: absolute;
+            bottom: 0;
+            width: 2px;
+            height: 50%;
+            background: var(--accent);
+            transform: translateX(-50%);
+            border-radius: 2px 2px 0 0;
+            transition: height 0.2s, background 0.2s;
+        }
+
+        .timeline-blip.threat-high {
+            background: var(--danger);
+            height: 100%;
+            box-shadow: 0 0 10px var(--danger);
+            z-index: 2;
+        }
+
+        .timeline-blip.threat-medium {
+            background: var(--warning);
+            height: 75%;
+            box-shadow: 0 0 8px var(--warning);
+            z-index: 1;
+        }
+
+        .timeline-playhead {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: white;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+            pointer-events: none;
+            transform: translateX(-50%);
+            z-index: 5;
+        }
+
+        .timeline-playhead::after {
+            content: '';
+            position: absolute;
+            top: -4px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-top: 8px solid white;
+        }
+
+        /* Error / Loading states */
+        .status-msg {
+            text-align: center;
+            padding: 40px;
+            color: var(--muted);
+            font-size: 15px;
         }
     </style>
 </head>
 
 <body>
-    <div class="badge">
-        <h1>📹 Recordings</h1>
-        <p>NVR replay page — coming soon</p>
-        <div class="task">Tasks: DNVR-01 through DNVR-08</div>
-        <div style="margin-top:8px;font-size:12px;color:#94a3b8;" id="auth-user"></div>
-        <br />
-        <a href="/">← Back to Live Feed</a>
-        <button id="logoutBtn" style="margin-left:8px;border:none;background:#1f2937;color:#e2e8f0;border-radius:6px;padding:6px 10px;cursor:pointer;">Logout</button>
-    </div>
-    <!-- TODO DNVR-01: implement full recordings UI here -->
-    <script src="/static/auth.js"></script>
+
+    <header>
+        <a href="/" class="brand">
+            <div class="brand-icon">👁️</div>
+            ArgusV
+        </a>
+        <div class="controls">
+            <select id="cam-selector">
+                <option value="">Loading cameras...</option>
+            </select>
+            <input type="date" id="date-picker" />
+            <button id="btn-events-only">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z">
+                    </path>
+                </svg>
+                Events Only
+            </button>
+            <button id="btn-download" style="background: rgba(255,255,255,0.1);">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                </svg>
+                Download Segment
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <div class="nvr-container">
+            <div class="video-wrapper">
+                <div class="video-overlay-info" id="video-tag">
+                    <div class="live-dot" style="background: #94a3b8; box-shadow: none;"></div>
+                    <span id="video-status">Select a camera</span>
+                </div>
+                <video id="nvr-player" controls muted></video>
+                <canvas id="bbox-overlay"></canvas>
+            </div>
+
+            <div class="timeline-wrapper">
+                <div class="timeline-header">
+                    <span id="tl-start-lbl">00:00</span>
+                    <span id="tl-indicator" style="color: white; font-weight: 600;">Playhead Time</span>
+                    <span id="tl-end-lbl">23:59</span>
+                </div>
+                <div class="timeline-track-container" id="timeline-track">
+                    <div class="timeline-ruler"></div>
+                    <div id="blips-container"></div>
+                    <div class="timeline-playhead" id="playhead" style="left: 0%;"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
     <script>
-        (async () => {
-            const me = await window.ArgusAuth.requireAuth();
-            if (!me) return;
-            document.getElementById("auth-user").textContent = `Logged in as ${me.username} (${me.role})`;
-            document.getElementById("logoutBtn").addEventListener("click", () => window.ArgusAuth.logout());
-        })();
+        const API_BASE = '/api';
+        let hls = null;
+        let currentCam = null;
+        let currentWindow = { start: null, end: null };
+        let markers = [];
+        let eventsOnly = false;
+
+        const video = document.getElementById('nvr-player');
+        const canvas = document.getElementById('bbox-overlay');
+        const ctx = canvas.getContext('2d');
+        const camSelector = document.getElementById('cam-selector');
+        const datePicker = document.getElementById('date-picker');
+        const tlTrack = document.getElementById('timeline-track');
+        const playhead = document.getElementById('playhead');
+        const blipsContainer = document.getElementById('blips-container');
+        const statusSpan = document.getElementById('video-status');
+        const tlIndicator = document.getElementById('tl-indicator');
+
+        // Initialize Date picker to today
+        const today = new Date().toISOString().split('T')[0];
+        datePicker.value = today;
+
+        async function init() {
+            // Check for deep-link from incident
+            const urlParams = new URLSearchParams(window.location.search);
+            const incidentId = urlParams.get('incident_id');
+
+            // Load cameras
+            const camsRes = await fetch(`${API_BASE}/cameras`);
+            if (camsRes.ok) {
+                const cameras = await camsRes.json();
+                camSelector.innerHTML = cameras.map(c => `<option value="${c.camera_id}">${c.name}</option>`).join('');
+                if (cameras.length > 0) {
+                    currentCam = cameras[0].camera_id;
+                }
+            }
+
+            if (incidentId) {
+                await loadIncidentReplay(incidentId);
+            } else if (currentCam) {
+                await loadDailyTimeline();
+            }
+
+            // Sync canvas resize
+            const observer = new ResizeObserver(() => resizeCanvas());
+            observer.observe(video);
+
+            // Bbox render loop tracking video time
+            video.addEventListener('timeupdate', () => drawBBoxes());
+
+            // Bind Timeline Seeking
+            tlTrack.addEventListener('click', (e) => {
+                if (!currentWindow.start) return;
+                const rect = tlTrack.getBoundingClientRect();
+                const pct = (e.clientX - rect.left) / rect.width;
+                const durationRange = currentWindow.end.getTime() - currentWindow.start.getTime();
+                const targetTime = new Date(currentWindow.start.getTime() + (durationRange * pct));
+
+                seekToTime(targetTime);
+            });
+
+            // UI Listeners
+            camSelector.addEventListener('change', (e) => {
+                currentCam = e.target.value;
+                loadDailyTimeline();
+            });
+            datePicker.addEventListener('change', () => loadDailyTimeline());
+
+            document.getElementById('btn-events-only').addEventListener('click', (e) => {
+                eventsOnly = !eventsOnly;
+                e.target.classList.toggle('active', eventsOnly);
+                loadDailyTimeline(); // Reload timeline with filter
+            });
+
+            document.getElementById('btn-download').addEventListener('click', () => {
+                alert("Task DNVR-07: Generating clip from backend...");
+            });
+        }
+
+        async function loadDailyTimeline() {
+            if (!currentCam) return;
+            const selectedDate = datePicker.value;
+            if (!selectedDate) return;
+
+            const startStr = `${selectedDate}T00:00:00Z`;
+            const endStr = `${selectedDate}T23:59:59Z`;
+
+            currentWindow.start = new Date(startStr);
+            currentWindow.end = new Date(endStr);
+
+            document.getElementById('tl-start-lbl').textContent = "00:00";
+            document.getElementById('tl-end-lbl').textContent = "23:59";
+
+            let tlUrl = `${API_BASE}/recordings/${currentCam}/timeline?start=${startStr}&end=${endStr}`;
+            if (eventsOnly) tlUrl += "&threats_only=true";
+
+            try {
+                const res = await fetch(tlUrl);
+                if (res.ok) {
+                    const data = await res.json();
+                    markers = data.markers || [];
+                    renderBlips();
+                } else {
+                    markers = [];
+                    renderBlips();
+                }
+
+                // Load the standard playlist for the entire day (Note: in production this might be heavy, but supports seeking)
+                const playUrl = `${API_BASE}/recordings/${currentCam}/playlist?start=${startStr}&end=${endStr}`;
+                loadPlaylist(playUrl);
+
+            } catch (e) {
+                console.error("Timeline load failed", e);
+            }
+        }
+
+        async function loadIncidentReplay(incidentId) {
+            try {
+                const res = await fetch(`${API_BASE}/incidents/${incidentId}/replay`);
+                if (res.ok) {
+                    const data = await res.json();
+                    currentCam = data.camera_id;
+                    camSelector.value = currentCam;
+                    currentWindow.start = new Date(data.window.start);
+                    currentWindow.end = new Date(data.window.end);
+
+                    document.getElementById('tl-start-lbl').textContent = currentWindow.start.toLocaleTimeString();
+                    document.getElementById('tl-end-lbl').textContent = currentWindow.end.toLocaleTimeString();
+
+                    // Fetch markers for this incident window
+                    const tlRes = await fetch(data.timeline_url);
+                    if (tlRes.ok) {
+                        const tlData = await tlRes.json();
+                        markers = tlData.markers || [];
+                        renderBlips();
+                    }
+
+                    loadPlaylist(data.playlist_url);
+
+                    // Show custom status
+                    statusSpan.textContent = `Replaying Incident: ${incidentId.slice(0, 8)}`;
+                    document.querySelector('.live-dot').style.background = '#f59e0b';
+                    document.querySelector('.live-dot').style.boxShadow = '0 0 8px #f59e0b';
+                }
+            } catch (e) {
+                console.error("Incident Replay failed", e);
+                alert("Failed to load incident replay.");
+            }
+        }
+
+        function loadPlaylist(url) {
+            statusSpan.textContent = "Loading segments...";
+
+            if (Hls.isSupported()) {
+                if (hls) hls.destroy();
+                hls = new Hls({
+                    enableWorker: true,
+                    maxBufferLength: 30,
+                });
+                hls.loadSource(url);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    statusSpan.textContent = "NVR Playback Ready";
+                    video.play().catch(e => console.log("Auto-play blocked"));
+                });
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        statusSpan.textContent = "Playback Error / No Segments";
+                    }
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = url;
+                video.addEventListener('loadedmetadata', () => {
+                    video.play();
+                });
+            }
+        }
+
+        function renderBlips() {
+            blipsContainer.innerHTML = '';
+            const rangeSpan = currentWindow.end.getTime() - currentWindow.start.getTime();
+
+            markers.forEach(mark => {
+                const dt = new Date(mark.timestamp).getTime();
+                if (dt >= currentWindow.start.getTime() && dt <= currentWindow.end.getTime()) {
+                    const pct = ((dt - currentWindow.start.getTime()) / rangeSpan) * 100;
+
+                    const blip = document.createElement('div');
+                    blip.className = 'timeline-blip';
+                    if (mark.threat_level === 'HIGH') blip.classList.add('threat-high');
+                    else if (mark.threat_level === 'MEDIUM') blip.classList.add('threat-medium');
+
+                    blip.style.left = `${pct}%`;
+                    blip.title = `${new Date(mark.timestamp).toLocaleTimeString()} - ${mark.object_class}`;
+                    blipsContainer.appendChild(blip);
+                }
+            });
+        }
+
+        function seekToTime(targetDate) {
+            // Very simplified seeking assumption based on HLS mapping
+            // In a real NVR, you'd calculate offsets exactly. Here we map percentage of window to video duration.
+            const rangeSpan = currentWindow.end.getTime() - currentWindow.start.getTime();
+            const offsetMs = targetDate.getTime() - currentWindow.start.getTime();
+
+            if (video.duration) {
+                const targetSec = (offsetMs / rangeSpan) * video.duration;
+                video.currentTime = targetSec;
+            }
+        }
+
+        // Bounding Box Logic (DNVR-05)
+        function resizeCanvas() {
+            if (!video) return;
+            canvas.width = video.clientWidth;
+            canvas.height = video.clientHeight;
+        }
+
+        function drawBBoxes() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (!video.duration) return;
+
+            // Map video.currentTime to our real-world window
+            const rangeSpan = currentWindow.end.getTime() - currentWindow.start.getTime();
+            const pct = video.currentTime / video.duration;
+            const currentActualTimeMs = currentWindow.start.getTime() + (rangeSpan * pct);
+
+            // Move playhead
+            playhead.style.left = `${pct * 100}%`;
+            tlIndicator.textContent = new Date(currentActualTimeMs).toLocaleTimeString();
+
+            // Find markers close to this timestamp (+/- 1 second)
+            const activeMarkers = markers.filter(m => {
+                const mkTime = new Date(m.timestamp).getTime();
+                return Math.abs(mkTime - currentActualTimeMs) <= 1500; // 1.5s tolerance
+            });
+
+            activeMarkers.forEach(mark => {
+                if (mark.bbox && mark.bbox.x1 != null) {
+                    const x = mark.bbox.x1 * canvas.width;
+                    const y = mark.bbox.y1 * canvas.height;
+                    const w = (mark.bbox.x2 - mark.bbox.x1) * canvas.width;
+                    const h = (mark.bbox.y2 - mark.bbox.y1) * canvas.height;
+
+                    // Design
+                    const isThreat = mark.is_threat;
+                    ctx.strokeStyle = isThreat ? '#ef4444' : '#3b82f6';
+                    ctx.lineWidth = 2;
+                    ctx.fillStyle = isThreat ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)';
+
+                    ctx.fillRect(x, y, w, h);
+                    ctx.strokeRect(x, y, w, h);
+
+                    // Label
+                    ctx.fillStyle = isThreat ? '#ef4444' : '#3b82f6';
+                    ctx.font = '500 12px Inter';
+                    const label = `${mark.object_class} ${mark.threat_level ? `| ${mark.threat_level}` : ''}`;
+                    const textWidth = ctx.measureText(label).width;
+                    ctx.fillRect(x, y - 20, textWidth + 8, 20);
+
+                    ctx.fillStyle = 'white';
+                    ctx.fillText(label, x + 4, y - 6);
+                }
+            });
+        }
+
+        window.addEventListener('DOMContentLoaded', init);
     </script>
 </body>
 

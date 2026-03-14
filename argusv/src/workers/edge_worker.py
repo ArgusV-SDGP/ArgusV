@@ -10,6 +10,7 @@ Per camera runs in threads:
   3. CameraRecorder — optional FFmpeg recording
 """
 
+import os
 import sys
 import time
 import uuid
@@ -101,7 +102,13 @@ class FrameBuffer:
         while not self._stop.is_set():
             if not self._connected:
                 try:
-                    self._cap = cv2.VideoCapture(self.rtsp_url)
+                    # Force RTSP over TCP to avoid "bad cseq" RTP UDP packet
+                    # reordering errors that cause H264 decode failures.
+                    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+                        "rtsp_transport;tcp|buffer_size;10485760"
+                    )
+                    self._cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
+                    self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
                     if not self._cap.isOpened():
                         raise ConnectionError("Failed to open stream")
                     self._connected = True
@@ -476,7 +483,7 @@ class CameraWorker:
         if cfg.RECORDINGS_ENABLED:
             try:
                 from workers.recording_worker import CameraRecorder
-                self._recorder = CameraRecorder(camera_id, rtsp_url)
+                self._recorder = CameraRecorder(camera_id, rtsp_url, bus_queue, loop)
             except Exception as e:
                 logger.warning(f"[CameraWorker:{camera_id}] Recorder unavailable: {e}")
 
