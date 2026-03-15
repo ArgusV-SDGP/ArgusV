@@ -11,12 +11,17 @@ Attempts to restart the dead CameraWorker thread.
 import asyncio
 import logging
 import time
+from collections import defaultdict
 
 import config as cfg
 
 logger = logging.getLogger("watchdog")
 
 WATCHDOG_INTERVAL_SEC = 30
+# How many consecutive missed heartbeats before we restart.
+# At 30s interval, 2 misses = ~60s of silence before restarting.
+_MISS_THRESHOLD = 2
+_miss_counts: dict[str, int] = defaultdict(int)
 
 
 async def watchdog_worker():
@@ -39,22 +44,47 @@ async def watchdog_worker():
 async def _check_cameras():
     """
     Check Redis heartbeats for each configured camera.
-    If offline for >60s → attempt restart.
+    Requires _MISS_THRESHOLD consecutive missed beats before restart,
+    so transient reconnects / H264 decode errors don't trigger spurious restarts.
     Task WATCH-02, WATCH-03
     """
     import redis as _redis
     r = _redis.from_url(cfg.REDIS_URL, decode_responses=True)
     from workers.edge_worker import _camera_workers
     for cam_id, worker in _camera_workers.items():
-        # Redis key format from the CameraWorker
         alive = r.exists(f"camera:status:{cam_id}")
-        if not alive:
-            logger.warning(f"[Watchdog] Camera {cam_id} offline — restarting thread")
-            try:
-                worker.stop()
-            except Exception:
-                pass
-            worker.start()
+        if alive:
+            _miss_counts[cam_id] = 0   # heartbeat present — reset counter
+            continue
+
+        _miss_counts[cam_id] += 1
+        misses = _miss_counts[cam_id]
+
+        # Also skip restart if the FrameBuffer got a good frame recently
+        buf = getattr(worker, "_buf", None)
+        last_good = getattr(buf, "_last_good_frame_ts", 0.0)
+        if time.time() - last_good < WATCHDOG_INTERVAL_SEC * 1.5:
+            logger.info(
+                f"[Watchdog] Camera {cam_id} heartbeat miss #{misses} "
+                f"but FrameBuffer got frame recently — skipping restart"
+            )
+            continue
+
+        if misses < _MISS_THRESHOLD:
+            logger.info(
+                f"[Watchdog] Camera {cam_id} heartbeat miss #{misses}/{_MISS_THRESHOLD} — waiting"
+            )
+            continue
+
+        logger.warning(
+            f"[Watchdog] Camera {cam_id} offline ({misses} missed beats) — restarting thread"
+        )
+        _miss_counts[cam_id] = 0
+        try:
+            worker.stop()
+        except Exception:
+            pass
+        worker.start()
 
 
 async def _check_disk():
