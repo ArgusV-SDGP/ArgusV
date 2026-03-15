@@ -193,6 +193,7 @@ cython_debug/
 
 # Task flow docs (personal)
 docs/brayan
+.claude
 
 # Ruff stuff:
 .ruff_cache/
