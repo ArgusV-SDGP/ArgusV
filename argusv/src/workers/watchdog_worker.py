@@ -42,17 +42,19 @@ async def _check_cameras():
     If offline for >60s → attempt restart.
     Task WATCH-02, WATCH-03
     """
-    # TODO WATCH-03: implement camera restart logic
-    # import redis as _redis
-    # r = _redis.from_url(cfg.REDIS_URL)
-    # from workers.edge_worker import _camera_workers
-    # for cam_id, worker in _camera_workers.items():
-    #     alive = r.exists(f"camera:status:{cam_id}")
-    #     if not alive:
-    #         logger.warning(f"[Watchdog] Camera {cam_id} offline — restarting thread")
-    #         worker.stop()
-    #         worker.start()
-    pass
+    import redis as _redis
+    r = _redis.from_url(cfg.REDIS_URL, decode_responses=True)
+    from workers.edge_worker import _camera_workers
+    for cam_id, worker in _camera_workers.items():
+        # Redis key format from the CameraWorker
+        alive = r.exists(f"camera:status:{cam_id}")
+        if not alive:
+            logger.warning(f"[Watchdog] Camera {cam_id} offline — restarting thread")
+            try:
+                worker.stop()
+            except Exception:
+                pass
+            worker.start()
 
 
 async def _check_disk():
@@ -60,13 +62,16 @@ async def _check_disk():
     Warn when recordings directory >80% full.
     Task WATCH-05
     """
-    # TODO WATCH-05: implement
-    # import shutil
-    # usage = shutil.disk_usage("/recordings")
-    # pct = usage.used / usage.total
-    # if pct > 0.8:
-    #     logger.warning(f"[Watchdog] Disk {pct:.0%} full — cleanup needed")
-    pass
+    import shutil
+    import os
+    
+    # Use the same path as cleanup worker
+    recordings_dir = cfg.LOCAL_RECORDINGS_DIR
+    if os.path.exists(recordings_dir):
+        usage = shutil.disk_usage(recordings_dir)
+        pct = usage.used / usage.total
+        if pct > 0.8:
+            logger.warning(f"[Watchdog] Disk usage at {pct:.0%} for {recordings_dir} — cleanup needed")
 
 
 async def _check_queue_depth():

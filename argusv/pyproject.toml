@@ -23,6 +23,7 @@ dependencies = [
     # Utilities
     "python-dotenv",
     "pydantic",
+    "pgvector>=0.4.2",
 ]
 
 [dependency-groups]

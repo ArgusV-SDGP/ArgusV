@@ -7,7 +7,6 @@
     "compared_against": "Frigate NVR v0.17.0",
     "description": "ArgusV is an enterprise-grade, AI-native Network Video Recorder (NVR) and surveillance platform built on FastAPI and asyncio. Unlike Frigate (SQLite + monolithic Python process), ArgusV uses PostgreSQL, Redis, and a clean async pipeline architecture with first-class Video RAG (Retrieval-Augmented Generation) chat, semantic video search, and multi-channel notification orchestration."
   },
-
   "architecture_comparison": {
     "frigate": {
       "language": "Python",
@@ -18,11 +17,21 @@
       "camera_pipeline": "FFmpeg per camera → /dev/shm → detector processes → enrichment processes",
       "ai_inference": "TFLite / ONNX / OpenVINO / TensorRT on dedicated detector processes",
       "storage": "Local filesystem (/media/frigate/recordings, /media/frigate/clips)",
-      "notifications": ["WebPush/VAPID", "MQTT", "Home Assistant", "Email"],
+      "notifications": [
+        "WebPush/VAPID",
+        "MQTT",
+        "Home Assistant",
+        "Email"
+      ],
       "auth": "JWT (PBKDF2-SHA256, roles: admin/viewer)",
       "frontend": "React SPA (Frigate 0.14+ full rewrite)",
       "embeddings": "CLIP (Jina AI V1/V2) stored in SQLite binary column",
-      "genai": ["Ollama", "Google Gemini", "OpenAI", "Azure OpenAI"],
+      "genai": [
+        "Ollama",
+        "Google Gemini",
+        "OpenAI",
+        "Azure OpenAI"
+      ],
       "recording_storage": "Local NFS/tmpfs → /media/frigate",
       "object_storage": "None (local filesystem only)",
       "cloud_optional": "Frigate+ (cloud-trained custom models)"
@@ -36,30 +45,63 @@
       "camera_pipeline": "FrameBuffer → MotionGate → YOLO+ByteTrack → ZoneMatcher → DwellTracker → asyncio queues",
       "ai_inference": "YOLOv8 (ultralytics) + ByteTrack in edge_worker thread, VLM in async pipeline",
       "storage": "MinIO (S3-compatible object storage for segments)",
-      "notifications": ["WebSocket (live dashboard)", "Slack", "MQTT (planned)", "WebPush (planned)", "Webhook (planned)"],
+      "notifications": [
+        "WebSocket (live dashboard)",
+        "Slack",
+        "MQTT (planned)",
+        "WebPush (planned)",
+        "Webhook (planned)"
+      ],
       "auth": "JWT (planned, TODO AUTH-01)",
       "frontend": "Vanilla JS HTML5 (4 pages: dashboard, incidents, recordings, zones)",
       "embeddings": "CLIP EmbeddingManager (planned, TODO VLM-08) → pgvector or Qdrant",
-      "genai": ["OpenAI GPT-4o/GPT-4o-mini (tiered, implemented)", "Gemini (TODO VLM-05)", "Ollama/LLaVA (TODO VLM-05)", "LlamaCpp (TODO VLM-05)"],
+      "genai": [
+        "OpenAI GPT-4o/GPT-4o-mini (tiered, implemented)",
+        "Gemini (TODO VLM-05)",
+        "Ollama/LLaVA (TODO VLM-05)",
+        "LlamaCpp (TODO VLM-05)"
+      ],
       "recording_storage": "MinIO S3-compatible (HLS segments via FFmpeg)",
       "object_storage": "MinIO (implemented in docker-compose)",
-      "differentiators": ["Video RAG Chat (natural language query over video history)", "pgvector semantic search", "Enterprise PostgreSQL (not SQLite)", "Clean async microservice-style architecture", "MinIO cloud-native storage"]
+      "differentiators": [
+        "Video RAG Chat (natural language query over video history)",
+        "pgvector semantic search",
+        "Enterprise PostgreSQL (not SQLite)",
+        "Clean async microservice-style architecture",
+        "MinIO cloud-native storage"
+      ]
     }
   },
-
   "stakeholders": {
     "primary_users": [
-      {"role": "Security Analyst", "needs": "Real-time alerts, incident review, video clip access, natural language video search"},
-      {"role": "Security Manager", "needs": "Dashboard overview, incident reports, zone configuration, notification routing"},
-      {"role": "System Administrator", "needs": "Camera management, storage configuration, user management, system health"},
-      {"role": "Incident Responder", "needs": "Fast incident triage, video replay, threat classification, escalation workflows"}
+      {
+        "role": "Security Analyst",
+        "needs": "Real-time alerts, incident review, video clip access, natural language video search"
+      },
+      {
+        "role": "Security Manager",
+        "needs": "Dashboard overview, incident reports, zone configuration, notification routing"
+      },
+      {
+        "role": "System Administrator",
+        "needs": "Camera management, storage configuration, user management, system health"
+      },
+      {
+        "role": "Incident Responder",
+        "needs": "Fast incident triage, video replay, threat classification, escalation workflows"
+      }
     ],
     "secondary_users": [
-      {"role": "End User (Home/SMB)", "needs": "Simple setup, mobile notifications, easy playback"},
-      {"role": "DevOps Engineer", "needs": "Docker deployment, metrics, log access, scalability"}
+      {
+        "role": "End User (Home/SMB)",
+        "needs": "Simple setup, mobile notifications, easy playback"
+      },
+      {
+        "role": "DevOps Engineer",
+        "needs": "Docker deployment, metrics, log access, scalability"
+      }
     ]
   },
-
   "epics": [
     {
       "id": "EPIC-01",
@@ -166,7 +208,6 @@
         }
       ]
     },
-
     {
       "id": "EPIC-02",
       "name": "VLM Threat Analysis (Video RAG Core)",
@@ -259,7 +300,7 @@
           "id": "VLM-06",
           "title": "Semantic Search (Text + Image Query)",
           "description": "CLIP-powered semantic search over all indexed detection thumbnails",
-          "status": "todo",
+          "status": "partial",
           "frigate_parity": true,
           "argusv_differentiator": true,
           "priority": "P0",
@@ -278,7 +319,7 @@
           "id": "VLM-07",
           "title": "CLIP Embeddings Pipeline",
           "description": "Generate and store CLIP embeddings for all detection thumbnails",
-          "status": "todo",
+          "status": "partial",
           "frigate_parity": true,
           "priority": "P0",
           "acceptance_criteria": [
@@ -325,19 +366,18 @@
         }
       ]
     },
-
     {
       "id": "EPIC-03",
       "name": "Recording & Playback System",
       "description": "Full NVR recording pipeline with HLS segments, MinIO storage, timeline scrubbing, and clip export",
       "priority": "P0",
-      "status": "scaffolding",
+      "status": "partial",
       "features": [
         {
           "id": "REC-01",
           "title": "HLS Segment Recording",
           "description": "FFmpeg records camera streams to HLS segments stored in MinIO",
-          "status": "scaffolding",
+          "status": "partial",
           "frigate_parity": true,
           "priority": "P0",
           "acceptance_criteria": [
@@ -355,7 +395,7 @@
           "id": "REC-02",
           "title": "HLS Playlist Generation & Streaming",
           "description": "Generate M3U8 playlists for segment-level playback via MediaMTX",
-          "status": "todo",
+          "status": "partial",
           "frigate_parity": true,
           "priority": "P0",
           "acceptance_criteria": [
@@ -371,7 +411,7 @@
           "id": "REC-03",
           "title": "Detection Timeline Markers",
           "description": "Overlay detection events on recording timeline for fast navigation",
-          "status": "todo",
+          "status": "partial",
           "frigate_parity": true,
           "priority": "P1",
           "acceptance_criteria": [
@@ -386,7 +426,7 @@
           "id": "REC-04",
           "title": "Clip Export",
           "description": "Generate and export video clips from incidents or arbitrary time ranges",
-          "status": "todo",
+          "status": "partial",
           "frigate_parity": true,
           "priority": "P1",
           "acceptance_criteria": [
@@ -403,7 +443,7 @@
           "id": "REC-05",
           "title": "Snapshot & Thumbnail System",
           "description": "Best-frame snapshot extraction for each detection event",
-          "status": "scaffolding",
+          "status": "partial",
           "frigate_parity": true,
           "priority": "P0",
           "acceptance_criteria": [
@@ -436,7 +476,7 @@
           "id": "REC-07",
           "title": "Retention Policy & Storage Cleanup",
           "description": "Automated segment deletion based on configurable retention rules",
-          "status": "scaffolding",
+          "status": "partial",
           "frigate_parity": true,
           "priority": "P1",
           "acceptance_criteria": [
@@ -451,7 +491,6 @@
         }
       ]
     },
-
     {
       "id": "EPIC-04",
       "name": "Review & Incident Triage System",
@@ -463,7 +502,7 @@
           "id": "REV-01",
           "title": "Incident Grouping & Review Queue",
           "description": "Bundle overlapping detections into review segments with Alert/Detection severity tiers",
-          "status": "partial",
+          "status": "scaffolding",
           "frigate_parity": true,
           "priority": "P0",
           "acceptance_criteria": [
@@ -481,7 +520,7 @@
           "id": "REV-02",
           "title": "Incident Detail View",
           "description": "Full incident details with timeline of sub-detections, VLM summaries, and associated clips",
-          "status": "todo",
+          "status": "partial",
           "frigate_parity": true,
           "priority": "P0",
           "acceptance_criteria": [
@@ -525,7 +564,6 @@
         }
       ]
     },
-
     {
       "id": "EPIC-05",
       "name": "Zone & Mask Configuration",
@@ -537,7 +575,7 @@
           "id": "ZONE-01",
           "title": "Zone CRUD API",
           "description": "Full REST API for zone management",
-          "status": "todo",
+          "status": "implemented",
           "frigate_parity": true,
           "priority": "P0",
           "acceptance_criteria": [
@@ -599,7 +637,6 @@
         }
       ]
     },
-
     {
       "id": "EPIC-06",
       "name": "Notification & Alert Routing System",
@@ -625,7 +662,7 @@
           "id": "NOTIF-02",
           "title": "Slack Integration",
           "description": "Slack channel notifications with threat level, zone, summary, and thumbnail",
-          "status": "implemented",
+          "status": "partial",
           "frigate_parity": false,
           "acceptance_criteria": [
             "POST to Slack chat.postMessage API",
@@ -659,7 +696,7 @@
           "id": "NOTIF-04",
           "title": "MQTT Alert Publishing",
           "description": "Full MQTT topic tree for integration with Home Assistant, Node-RED, and custom systems",
-          "status": "todo",
+          "status": "scaffolding",
           "frigate_parity": true,
           "priority": "P1",
           "acceptance_criteria": [
@@ -728,7 +765,6 @@
         }
       ]
     },
-
     {
       "id": "EPIC-07",
       "name": "PTZ & Camera Actuation",
@@ -789,7 +825,6 @@
         }
       ]
     },
-
     {
       "id": "EPIC-08",
       "name": "Live View & Streaming",
@@ -845,7 +880,6 @@
         }
       ]
     },
-
     {
       "id": "EPIC-09",
       "name": "Camera Management",
@@ -906,19 +940,18 @@
         }
       ]
     },
-
     {
       "id": "EPIC-10",
       "name": "Authentication & Authorization",
       "description": "JWT-based auth with role-based access control",
       "priority": "P0",
-      "status": "todo",
+      "status": "partial",
       "features": [
         {
           "id": "AUTH-01",
           "title": "JWT Authentication",
           "description": "Secure JWT-based login with PBKDF2 password hashing",
-          "status": "todo",
+          "status": "partial",
           "frigate_parity": true,
           "priority": "P0",
           "acceptance_criteria": [
@@ -936,7 +969,7 @@
           "id": "AUTH-02",
           "title": "Role-Based Access Control",
           "description": "Admin and Viewer roles with camera-level restrictions",
-          "status": "todo",
+          "status": "partial",
           "frigate_parity": true,
           "priority": "P1",
           "acceptance_criteria": [
@@ -955,7 +988,7 @@
           "id": "AUTH-03",
           "title": "Proxy Authentication Support",
           "description": "Support SSO via reverse proxy auth headers (Authelia, Authentik, Keycloak)",
-          "status": "todo",
+          "status": "partial",
           "frigate_parity": true,
           "priority": "P2",
           "acceptance_criteria": [
@@ -967,7 +1000,6 @@
         }
       ]
     },
-
     {
       "id": "EPIC-11",
       "name": "Statistics & Observability",
@@ -1021,7 +1053,6 @@
         }
       ]
     },
-
     {
       "id": "EPIC-12",
       "name": "Configuration Management",
@@ -1033,7 +1064,7 @@
           "id": "CFG-01",
           "title": "Configuration API",
           "description": "REST API to read and update system configuration at runtime",
-          "status": "todo",
+          "status": "partial",
           "frigate_parity": true,
           "priority": "P1",
           "acceptance_criteria": [
@@ -1065,7 +1096,6 @@
         }
       ]
     },
-
     {
       "id": "EPIC-13",
       "name": "Database & Storage Infrastructure",
@@ -1093,7 +1123,7 @@
           "id": "DB-02",
           "title": "pgvector Extension & Semantic Index",
           "description": "PostgreSQL pgvector for CLIP embedding storage and cosine similarity search",
-          "status": "todo",
+          "status": "partial",
           "frigate_parity": false,
           "argusv_differentiator": true,
           "priority": "P0",
@@ -1109,7 +1139,7 @@
           "id": "DB-03",
           "title": "MinIO Object Storage Integration",
           "description": "S3-compatible object storage for all media files",
-          "status": "partial",
+          "status": "scaffolding",
           "frigate_parity": false,
           "argusv_differentiator": true,
           "priority": "P0",
@@ -1125,190 +1155,842 @@
       ]
     }
   ],
-
   "api_specification": {
     "base_url": "/api",
     "auth_header": "Authorization: Bearer <JWT>",
     "endpoints": [
-      {"method": "POST", "path": "/api/login", "description": "Obtain JWT token", "auth": false, "status": "todo"},
-      {"method": "POST", "path": "/api/logout", "description": "Invalidate session", "auth": true, "status": "todo"},
-      {"method": "POST", "path": "/api/refresh", "description": "Refresh access token", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/profile", "description": "Current user info", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/users", "description": "List users (admin)", "auth": true, "status": "todo"},
-      {"method": "POST", "path": "/api/users", "description": "Create user", "auth": true, "status": "todo"},
-      {"method": "PUT", "path": "/api/users/{username}/password", "description": "Change password", "auth": true, "status": "todo"},
-      {"method": "DELETE", "path": "/api/users/{username}", "description": "Delete user", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/cameras", "description": "List all cameras with status", "auth": true, "status": "implemented"},
-      {"method": "POST", "path": "/api/cameras", "description": "Add camera", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/cameras/{id}", "description": "Camera detail", "auth": true, "status": "todo"},
-      {"method": "PUT", "path": "/api/cameras/{id}", "description": "Update camera", "auth": true, "status": "todo"},
-      {"method": "DELETE", "path": "/api/cameras/{id}", "description": "Remove camera", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/cameras/{id}/latest.jpg", "description": "Latest frame snapshot", "auth": true, "status": "todo"},
-      {"method": "POST", "path": "/api/cameras/{id}/ptz", "description": "PTZ command", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/cameras/{id}/ptz/info", "description": "PTZ presets + capabilities", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/cameras/{id}/masks", "description": "List masks for camera", "auth": true, "status": "todo"},
-      {"method": "POST", "path": "/api/cameras/{id}/masks", "description": "Create mask", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/zones", "description": "List all zones", "auth": true, "status": "todo"},
-      {"method": "POST", "path": "/api/zones", "description": "Create zone", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/zones/{id}", "description": "Zone detail", "auth": true, "status": "todo"},
-      {"method": "PUT", "path": "/api/zones/{id}", "description": "Update zone", "auth": true, "status": "todo"},
-      {"method": "DELETE", "path": "/api/zones/{id}", "description": "Delete zone", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/incidents", "description": "List incidents (filterable)", "auth": true, "status": "implemented"},
-      {"method": "GET", "path": "/api/incidents/{id}", "description": "Incident detail", "auth": true, "status": "todo"},
-      {"method": "PATCH", "path": "/api/incidents/{id}", "description": "Update incident status/notes", "auth": true, "status": "todo"},
-      {"method": "DELETE", "path": "/api/incidents/{id}", "description": "Delete incident", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/incidents/{id}/replay", "description": "Incident clip URL", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/detections", "description": "Search detections (filterable)", "auth": true, "status": "implemented"},
-      {"method": "GET", "path": "/api/detections/{id}", "description": "Detection detail", "auth": true, "status": "todo"},
-      {"method": "DELETE", "path": "/api/detections/{id}", "description": "Delete detection", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/events/summary", "description": "Grouped event count summary", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/review", "description": "List review segments", "auth": true, "status": "todo"},
-      {"method": "POST", "path": "/api/review/{id}/viewed", "description": "Mark as viewed", "auth": true, "status": "todo"},
-      {"method": "POST", "path": "/api/review/viewed", "description": "Bulk mark as viewed", "auth": true, "status": "todo"},
-      {"method": "DELETE", "path": "/api/review/{id}", "description": "Delete review segment", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/review/activity/motion", "description": "Motion activity timeline", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/recordings/{camera}/segments", "description": "List recording segments", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/recordings/{camera}/playlist", "description": "M3U8 playlist", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/recordings/{camera}/timeline", "description": "Detection timeline markers", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/recordings/{camera}/{start}/{end}/clip.mp4", "description": "Generate recording clip", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/events/{id}/snapshot", "description": "Event snapshot redirect", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/previews/{camera}/{start}/{end}/clip.mp4", "description": "Preview clip", "auth": true, "status": "todo"},
-      {"method": "POST", "path": "/api/export/{camera}/{start}/{end}", "description": "Initiate export", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/exports", "description": "List exports", "auth": true, "status": "todo"},
-      {"method": "DELETE", "path": "/api/exports/{id}", "description": "Delete export", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/exports/{id}/download", "description": "Export download URL", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/search", "description": "Semantic search (CLIP)", "auth": true, "status": "todo", "params": "q, camera, from, to, limit, threshold"},
-      {"method": "POST", "path": "/api/search/image", "description": "Image-to-image semantic search", "auth": true, "status": "todo"},
-      {"method": "POST", "path": "/api/embeddings/reindex", "description": "Reindex all CLIP embeddings", "auth": true, "status": "todo"},
-      {"method": "POST", "path": "/api/chat/query", "description": "Video RAG chat query", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/chat/sessions", "description": "List chat sessions", "auth": true, "status": "todo"},
-      {"method": "DELETE", "path": "/api/chat/sessions/{id}", "description": "Delete chat session", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/notification-rules", "description": "List notification rules", "auth": true, "status": "todo"},
-      {"method": "POST", "path": "/api/notification-rules", "description": "Create notification rule", "auth": true, "status": "todo"},
-      {"method": "PUT", "path": "/api/notification-rules/{id}", "description": "Update rule", "auth": true, "status": "todo"},
-      {"method": "DELETE", "path": "/api/notification-rules/{id}", "description": "Delete rule", "auth": true, "status": "todo"},
-      {"method": "POST", "path": "/api/push", "description": "Register WebPush subscription", "auth": true, "status": "todo"},
-      {"method": "DELETE", "path": "/api/push", "description": "Unregister push subscription", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/config", "description": "Active configuration", "auth": true, "status": "todo"},
-      {"method": "POST", "path": "/api/config/save", "description": "Save configuration", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/stats", "description": "System stats", "auth": true, "status": "implemented"},
-      {"method": "GET", "path": "/api/stats/history", "description": "Historical metrics", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/metrics", "description": "Prometheus metrics", "auth": false, "status": "todo"},
-      {"method": "GET", "path": "/health", "description": "System health check", "auth": false, "status": "implemented"},
-      {"method": "GET", "path": "/api/logs/{service}", "description": "Application logs", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/faces", "description": "List known faces", "auth": true, "status": "todo"},
-      {"method": "POST", "path": "/api/faces/{name}/train", "description": "Train face recognition", "auth": true, "status": "todo"},
-      {"method": "DELETE", "path": "/api/faces/{name}", "description": "Delete face", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/lpr/plates", "description": "List license plates", "auth": true, "status": "todo"},
-      {"method": "POST", "path": "/api/lpr/plates/known", "description": "Add known plate", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/storage/stats", "description": "MinIO storage usage", "auth": true, "status": "todo"},
-      {"method": "GET", "path": "/api/birdseye/stream.m3u8", "description": "Birdseye composite HLS", "auth": true, "status": "todo"},
-      {"method": "POST", "path": "/api/actuate/{device}", "description": "Trigger physical device", "auth": true, "status": "todo"}
+      {
+        "method": "POST",
+        "path": "/api/login",
+        "description": "Obtain JWT token",
+        "auth": false,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/logout",
+        "description": "Invalidate session",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/refresh",
+        "description": "Refresh access token",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/profile",
+        "description": "Current user info",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/users",
+        "description": "List users (admin)",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/users",
+        "description": "Create user",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/users/{username}/password",
+        "description": "Change password",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/users/{username}",
+        "description": "Delete user",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/cameras",
+        "description": "List all cameras with status",
+        "auth": true,
+        "status": "implemented"
+      },
+      {
+        "method": "POST",
+        "path": "/api/cameras",
+        "description": "Add camera",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/cameras/{id}",
+        "description": "Camera detail",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/cameras/{id}",
+        "description": "Update camera",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/cameras/{id}",
+        "description": "Remove camera",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/cameras/{id}/latest.jpg",
+        "description": "Latest frame snapshot",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/cameras/{id}/ptz",
+        "description": "PTZ command",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/cameras/{id}/ptz/info",
+        "description": "PTZ presets + capabilities",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/cameras/{id}/masks",
+        "description": "List masks for camera",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/cameras/{id}/masks",
+        "description": "Create mask",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/zones",
+        "description": "List all zones",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/zones",
+        "description": "Create zone",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/zones/{id}",
+        "description": "Zone detail",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/zones/{id}",
+        "description": "Update zone",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/zones/{id}",
+        "description": "Delete zone",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/incidents",
+        "description": "List incidents (filterable)",
+        "auth": true,
+        "status": "implemented"
+      },
+      {
+        "method": "GET",
+        "path": "/api/incidents/{id}",
+        "description": "Incident detail",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/incidents/{id}",
+        "description": "Update incident status/notes",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/incidents/{id}",
+        "description": "Delete incident",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/incidents/{id}/replay",
+        "description": "Incident clip URL",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/detections",
+        "description": "Search detections (filterable)",
+        "auth": true,
+        "status": "implemented"
+      },
+      {
+        "method": "GET",
+        "path": "/api/detections/{id}",
+        "description": "Detection detail",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/detections/{id}",
+        "description": "Delete detection",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/events/summary",
+        "description": "Grouped event count summary",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/review",
+        "description": "List review segments",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/review/{id}/viewed",
+        "description": "Mark as viewed",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/review/viewed",
+        "description": "Bulk mark as viewed",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/review/{id}",
+        "description": "Delete review segment",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/review/activity/motion",
+        "description": "Motion activity timeline",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/recordings/{camera}/segments",
+        "description": "List recording segments",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/recordings/{camera}/playlist",
+        "description": "M3U8 playlist",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/recordings/{camera}/timeline",
+        "description": "Detection timeline markers",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/recordings/{camera}/{start}/{end}/clip.mp4",
+        "description": "Generate recording clip",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/events/{id}/snapshot",
+        "description": "Event snapshot redirect",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/previews/{camera}/{start}/{end}/clip.mp4",
+        "description": "Preview clip",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/export/{camera}/{start}/{end}",
+        "description": "Initiate export",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/exports",
+        "description": "List exports",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/exports/{id}",
+        "description": "Delete export",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/exports/{id}/download",
+        "description": "Export download URL",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/search",
+        "description": "Semantic search (CLIP)",
+        "auth": true,
+        "status": "todo",
+        "params": "q, camera, from, to, limit, threshold"
+      },
+      {
+        "method": "POST",
+        "path": "/api/search/image",
+        "description": "Image-to-image semantic search",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/embeddings/reindex",
+        "description": "Reindex all CLIP embeddings",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/chat/query",
+        "description": "Video RAG chat query",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/chat/sessions",
+        "description": "List chat sessions",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/chat/sessions/{id}",
+        "description": "Delete chat session",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/notification-rules",
+        "description": "List notification rules",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/notification-rules",
+        "description": "Create notification rule",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/notification-rules/{id}",
+        "description": "Update rule",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/notification-rules/{id}",
+        "description": "Delete rule",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/push",
+        "description": "Register WebPush subscription",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/push",
+        "description": "Unregister push subscription",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/config",
+        "description": "Active configuration",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/config/save",
+        "description": "Save configuration",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/stats",
+        "description": "System stats",
+        "auth": true,
+        "status": "implemented"
+      },
+      {
+        "method": "GET",
+        "path": "/api/stats/history",
+        "description": "Historical metrics",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/metrics",
+        "description": "Prometheus metrics",
+        "auth": false,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/health",
+        "description": "System health check",
+        "auth": false,
+        "status": "implemented"
+      },
+      {
+        "method": "GET",
+        "path": "/api/logs/{service}",
+        "description": "Application logs",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/faces",
+        "description": "List known faces",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/faces/{name}/train",
+        "description": "Train face recognition",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/faces/{name}",
+        "description": "Delete face",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/lpr/plates",
+        "description": "List license plates",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/lpr/plates/known",
+        "description": "Add known plate",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/storage/stats",
+        "description": "MinIO storage usage",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "GET",
+        "path": "/api/birdseye/stream.m3u8",
+        "description": "Birdseye composite HLS",
+        "auth": true,
+        "status": "todo"
+      },
+      {
+        "method": "POST",
+        "path": "/api/actuate/{device}",
+        "description": "Trigger physical device",
+        "auth": true,
+        "status": "todo"
+      }
     ],
     "websockets": [
-      {"path": "/ws/alerts", "description": "Real-time alert broadcast to dashboard", "status": "implemented"},
-      {"path": "/ws/chat", "description": "Video RAG chat (streaming response)", "status": "todo"},
-      {"path": "/ws/stats", "description": "Real-time system stats stream", "status": "todo"}
+      {
+        "path": "/ws/alerts",
+        "description": "Real-time alert broadcast to dashboard",
+        "status": "implemented"
+      },
+      {
+        "path": "/ws/chat",
+        "description": "Video RAG chat (streaming response)",
+        "status": "todo"
+      },
+      {
+        "path": "/ws/stats",
+        "description": "Real-time system stats stream",
+        "status": "todo"
+      }
     ]
   },
-
   "database_schema": {
     "engine": "PostgreSQL 15",
     "orm": "SQLAlchemy 2.0 (async)",
-    "extensions": ["pgvector", "uuid-ossp"],
+    "extensions": [
+      "pgvector",
+      "uuid-ossp"
+    ],
     "tables": [
       {
         "name": "cameras",
-        "key_fields": ["camera_id (PK, str)", "name", "rtsp_url", "detect_fps", "resolution", "status (online|offline|degraded|disabled)", "enabled", "motion_masks (JSONB)", "created_at", "updated_at"],
+        "key_fields": [
+          "camera_id (PK, str)",
+          "name",
+          "rtsp_url",
+          "detect_fps",
+          "resolution",
+          "status (online|offline|degraded|disabled)",
+          "enabled",
+          "motion_masks (JSONB)",
+          "created_at",
+          "updated_at"
+        ],
         "status": "implemented"
       },
       {
         "name": "zones",
-        "key_fields": ["zone_id (PK, UUID)", "camera_id (FK)", "name", "polygon_coords (JSONB, relative 0-1)", "dwell_threshold_sec", "alert_objects (JSONB array)", "detection_objects (JSONB array)", "inertia_frames", "speed_estimation (bool)", "active"],
+        "key_fields": [
+          "zone_id (PK, UUID)",
+          "camera_id (FK)",
+          "name",
+          "polygon_coords (JSONB, relative 0-1)",
+          "dwell_threshold_sec",
+          "alert_objects (JSONB array)",
+          "detection_objects (JSONB array)",
+          "inertia_frames",
+          "speed_estimation (bool)",
+          "active"
+        ],
         "status": "implemented"
       },
       {
         "name": "rules",
-        "key_fields": ["rule_id (PK)", "zone_id (FK)", "trigger_type (ENTER|LOITER|EXIT|SPEED)", "severity (HIGH|MEDIUM|LOW)", "action_config (JSONB)"],
+        "key_fields": [
+          "rule_id (PK)",
+          "zone_id (FK)",
+          "trigger_type (ENTER|LOITER|EXIT|SPEED)",
+          "severity (HIGH|MEDIUM|LOW)",
+          "action_config (JSONB)"
+        ],
         "status": "implemented"
       },
       {
         "name": "detections",
-        "key_fields": ["detection_id (PK, UUID)", "event_id (track ID)", "camera_id (FK)", "zone_id (FK, nullable)", "object_class", "sub_label (face name / plate)", "confidence", "bbox_x1 bbox_y1 bbox_x2 bbox_y2", "threat_level", "vlm_summary", "embedding (vector(512))", "dwell_sec", "is_stationary", "speed_mph", "thumbnail_url", "detected_at"],
+        "key_fields": [
+          "detection_id (PK, UUID)",
+          "event_id (track ID)",
+          "camera_id (FK)",
+          "zone_id (FK, nullable)",
+          "object_class",
+          "sub_label (face name / plate)",
+          "confidence",
+          "bbox_x1 bbox_y1 bbox_x2 bbox_y2",
+          "threat_level",
+          "vlm_summary",
+          "embedding (vector(512))",
+          "dwell_sec",
+          "is_stationary",
+          "speed_mph",
+          "thumbnail_url",
+          "detected_at"
+        ],
         "status": "partial (embedding column TODO)"
       },
       {
         "name": "incidents",
-        "key_fields": ["incident_id (PK, UUID)", "camera_id (FK)", "zone_id (FK)", "threat_level", "summary", "status (OPEN|RESOLVED|DISMISSED|ESCALATED)", "resolved_by", "resolved_at", "notes", "retain_indefinitely", "detection_ids (JSONB array)", "metadata_json (JSONB)", "detected_at"],
+        "key_fields": [
+          "incident_id (PK, UUID)",
+          "camera_id (FK)",
+          "zone_id (FK)",
+          "threat_level",
+          "summary",
+          "status (OPEN|RESOLVED|DISMISSED|ESCALATED)",
+          "resolved_by",
+          "resolved_at",
+          "notes",
+          "retain_indefinitely",
+          "detection_ids (JSONB array)",
+          "metadata_json (JSONB)",
+          "detected_at"
+        ],
         "status": "implemented"
       },
       {
         "name": "review_segments",
-        "key_fields": ["id (PK, UUID)", "camera_id (FK)", "start_time", "end_time", "severity (ALERT|DETECTION)", "thumb_path", "data (JSONB)"],
+        "key_fields": [
+          "id (PK, UUID)",
+          "camera_id (FK)",
+          "start_time",
+          "end_time",
+          "severity (ALERT|DETECTION)",
+          "thumb_path",
+          "data (JSONB)"
+        ],
         "status": "todo"
       },
       {
         "name": "segments",
-        "key_fields": ["segment_id (PK, UUID)", "camera_id (FK)", "start_time", "end_time", "minio_path", "duration_sec", "has_detections", "motion_score", "size_bytes", "codec"],
+        "key_fields": [
+          "segment_id (PK, UUID)",
+          "camera_id (FK)",
+          "start_time",
+          "end_time",
+          "minio_path",
+          "duration_sec",
+          "has_detections",
+          "motion_score",
+          "size_bytes",
+          "codec"
+        ],
         "status": "implemented"
       },
       {
         "name": "notification_rules",
-        "key_fields": ["id (PK)", "zone_id (FK, nullable)", "camera_id (FK, nullable)", "severity", "channels (JSONB)", "config (JSONB)", "cooldown_sec", "enabled"],
+        "key_fields": [
+          "id (PK)",
+          "zone_id (FK, nullable)",
+          "camera_id (FK, nullable)",
+          "severity",
+          "channels (JSONB)",
+          "config (JSONB)",
+          "cooldown_sec",
+          "enabled"
+        ],
         "status": "implemented"
       },
       {
         "name": "users",
-        "key_fields": ["username (PK)", "password_hash", "role (admin|operator|viewer)", "allowed_cameras (JSONB array)", "push_tokens (JSONB array)", "created_at"],
+        "key_fields": [
+          "username (PK)",
+          "password_hash",
+          "role (admin|operator|viewer)",
+          "allowed_cameras (JSONB array)",
+          "push_tokens (JSONB array)",
+          "created_at"
+        ],
         "status": "todo"
       },
       {
         "name": "exports",
-        "key_fields": ["id (PK, UUID)", "name", "camera_id (FK)", "start_time", "end_time", "status (pending|processing|ready|failed)", "minio_path", "size_bytes", "created_by (FK users)", "created_at"],
+        "key_fields": [
+          "id (PK, UUID)",
+          "name",
+          "camera_id (FK)",
+          "start_time",
+          "end_time",
+          "status (pending|processing|ready|failed)",
+          "minio_path",
+          "size_bytes",
+          "created_by (FK users)",
+          "created_at"
+        ],
         "status": "todo"
       },
       {
         "name": "triggers",
-        "key_fields": ["id (PK, UUID)", "name", "camera_id (FK)", "label", "threshold (float)", "embedding (vector(512))", "action_config (JSONB)", "enabled"],
+        "key_fields": [
+          "id (PK, UUID)",
+          "name",
+          "camera_id (FK)",
+          "label",
+          "threshold (float)",
+          "embedding (vector(512))",
+          "action_config (JSONB)",
+          "enabled"
+        ],
         "status": "todo"
       },
       {
         "name": "chat_sessions",
-        "key_fields": ["id (PK, UUID)", "user (FK)", "messages (JSONB array)", "created_at", "updated_at"],
+        "key_fields": [
+          "id (PK, UUID)",
+          "user (FK)",
+          "messages (JSONB array)",
+          "created_at",
+          "updated_at"
+        ],
         "status": "todo"
       },
       {
         "name": "rag_config",
-        "key_fields": ["key (PK)", "value (TEXT)", "group"],
+        "key_fields": [
+          "key (PK)",
+          "value (TEXT)",
+          "group"
+        ],
         "status": "implemented"
       }
     ]
   },
-
   "mqtt_topics": {
     "prefix": "argusv",
     "topics": [
-      {"topic": "argusv/available", "description": "online/offline (LWT)", "direction": "publish"},
-      {"topic": "argusv/restart", "description": "Trigger system restart", "direction": "subscribe"},
-      {"topic": "argusv/events", "description": "All detection events (new/update/end)", "direction": "publish"},
-      {"topic": "argusv/reviews", "description": "Review segment events", "direction": "publish"},
-      {"topic": "argusv/stats", "description": "System stats (30s interval)", "direction": "publish"},
-      {"topic": "argusv/camera_activity", "description": "Per-camera motion/detection activity", "direction": "publish"},
-      {"topic": "argusv/<camera>/<object>", "description": "Tracked object updates", "direction": "publish"},
-      {"topic": "argusv/<camera>/<object>/snapshot", "description": "JPEG base64 snapshot", "direction": "publish"},
-      {"topic": "argusv/<camera>/status", "description": "online/offline/degraded", "direction": "publish"},
-      {"topic": "argusv/<camera>/audio/<type>", "description": "Audio event detection", "direction": "publish"},
-      {"topic": "argusv/<camera>/review_status", "description": "NONE|DETECTION|ALERT", "direction": "publish"},
-      {"topic": "argusv/<camera>/detect/set", "description": "Toggle detection ON/OFF", "direction": "subscribe"},
-      {"topic": "argusv/<camera>/recordings/set", "description": "Toggle recording ON/OFF", "direction": "subscribe"},
-      {"topic": "argusv/<camera>/snapshots/set", "description": "Toggle snapshots ON/OFF", "direction": "subscribe"},
-      {"topic": "argusv/<camera>/ptz", "description": "PTZ command payload", "direction": "subscribe"},
-      {"topic": "argusv/<camera>/ptz_autotracker/active", "description": "Autotracker state ON/OFF", "direction": "publish"},
-      {"topic": "argusv/notifications/set", "description": "Global notifications ON/OFF", "direction": "subscribe"},
-      {"topic": "argusv/<camera>/notifications/suspend", "description": "Suspend notifications N minutes", "direction": "subscribe"}
+      {
+        "topic": "argusv/available",
+        "description": "online/offline (LWT)",
+        "direction": "publish"
+      },
+      {
+        "topic": "argusv/restart",
+        "description": "Trigger system restart",
+        "direction": "subscribe"
+      },
+      {
+        "topic": "argusv/events",
+        "description": "All detection events (new/update/end)",
+        "direction": "publish"
+      },
+      {
+        "topic": "argusv/reviews",
+        "description": "Review segment events",
+        "direction": "publish"
+      },
+      {
+        "topic": "argusv/stats",
+        "description": "System stats (30s interval)",
+        "direction": "publish"
+      },
+      {
+        "topic": "argusv/camera_activity",
+        "description": "Per-camera motion/detection activity",
+        "direction": "publish"
+      },
+      {
+        "topic": "argusv/<camera>/<object>",
+        "description": "Tracked object updates",
+        "direction": "publish"
+      },
+      {
+        "topic": "argusv/<camera>/<object>/snapshot",
+        "description": "JPEG base64 snapshot",
+        "direction": "publish"
+      },
+      {
+        "topic": "argusv/<camera>/status",
+        "description": "online/offline/degraded",
+        "direction": "publish"
+      },
+      {
+        "topic": "argusv/<camera>/audio/<type>",
+        "description": "Audio event detection",
+        "direction": "publish"
+      },
+      {
+        "topic": "argusv/<camera>/review_status",
+        "description": "NONE|DETECTION|ALERT",
+        "direction": "publish"
+      },
+      {
+        "topic": "argusv/<camera>/detect/set",
+        "description": "Toggle detection ON/OFF",
+        "direction": "subscribe"
+      },
+      {
+        "topic": "argusv/<camera>/recordings/set",
+        "description": "Toggle recording ON/OFF",
+        "direction": "subscribe"
+      },
+      {
+        "topic": "argusv/<camera>/snapshots/set",
+        "description": "Toggle snapshots ON/OFF",
+        "direction": "subscribe"
+      },
+      {
+        "topic": "argusv/<camera>/ptz",
+        "description": "PTZ command payload",
+        "direction": "subscribe"
+      },
+      {
+        "topic": "argusv/<camera>/ptz_autotracker/active",
+        "description": "Autotracker state ON/OFF",
+        "direction": "publish"
+      },
+      {
+        "topic": "argusv/notifications/set",
+        "description": "Global notifications ON/OFF",
+        "direction": "subscribe"
+      },
+      {
+        "topic": "argusv/<camera>/notifications/suspend",
+        "description": "Suspend notifications N minutes",
+        "direction": "subscribe"
+      }
     ]
   },
-
   "video_rag_chat_specification": {
     "description": "ArgusV's primary differentiator: natural language querying over video surveillance history",
     "architecture": {
@@ -1335,7 +2017,17 @@
     ],
     "response_format": {
       "answer": "Natural language response grounded in retrieved detections",
-      "citations": [{"detection_id": "uuid", "timestamp": "ISO8601", "camera": "str", "zone": "str", "threat_level": "str", "thumbnail_url": "str", "similarity_score": 0.92}],
+      "citations": [
+        {
+          "detection_id": "uuid",
+          "timestamp": "ISO8601",
+          "camera": "str",
+          "zone": "str",
+          "threat_level": "str",
+          "thumbnail_url": "str",
+          "similarity_score": 0.92
+        }
+      ],
       "session_id": "uuid",
       "tokens_used": 1234
     },
@@ -1345,20 +2037,75 @@
       "api": "POST /api/triggers {name, query_text, threshold, camera_id, action_config}"
     }
   },
-
   "infrastructure": {
     "docker_services": [
-      {"name": "argusv", "image": "argusv:latest", "port": 8000, "description": "Main FastAPI application"},
-      {"name": "postgres", "image": "pgvector/pgvector:pg15", "port": 5433, "description": "PostgreSQL 15 with pgvector extension"},
-      {"name": "redis", "image": "redis:7-alpine", "port": 6380, "description": "Cache, pub/sub, rate limiting, session store"},
-      {"name": "minio", "image": "minio/minio:latest", "ports": [9000, 9001], "description": "S3-compatible object storage for recordings/snapshots"},
-      {"name": "mediamtx", "image": "bluenviron/mediamtx:latest", "ports": [8554, 8888, 8889, 8890], "description": "RTSP/HLS/WebRTC re-broadcaster"},
-      {"name": "nginx", "image": "nginx:alpine", "ports": [443, 80], "description": "TLS termination + reverse proxy (optional, for production)"}
+      {
+        "name": "argusv",
+        "image": "argusv:latest",
+        "port": 8000,
+        "description": "Main FastAPI application"
+      },
+      {
+        "name": "postgres",
+        "image": "pgvector/pgvector:pg15",
+        "port": 5433,
+        "description": "PostgreSQL 15 with pgvector extension"
+      },
+      {
+        "name": "redis",
+        "image": "redis:7-alpine",
+        "port": 6380,
+        "description": "Cache, pub/sub, rate limiting, session store"
+      },
+      {
+        "name": "minio",
+        "image": "minio/minio:latest",
+        "ports": [
+          9000,
+          9001
+        ],
+        "description": "S3-compatible object storage for recordings/snapshots"
+      },
+      {
+        "name": "mediamtx",
+        "image": "bluenviron/mediamtx:latest",
+        "ports": [
+          8554,
+          8888,
+          8889,
+          8890
+        ],
+        "description": "RTSP/HLS/WebRTC re-broadcaster"
+      },
+      {
+        "name": "nginx",
+        "image": "nginx:alpine",
+        "ports": [
+          443,
+          80
+        ],
+        "description": "TLS termination + reverse proxy (optional, for production)"
+      }
     ],
     "hardware_requirements": {
-      "minimum": {"cpu": "4 cores", "ram": "8GB", "gpu": "None (YOLO CPU mode)", "storage": "50GB"},
-      "recommended": {"cpu": "8 cores", "ram": "16GB", "gpu": "NVIDIA 8GB VRAM (YOLO + CLIP GPU)", "storage": "500GB"},
-      "enterprise": {"cpu": "16 cores", "ram": "32GB", "gpu": "NVIDIA 24GB VRAM", "storage": "4TB NAS/MinIO cluster"}
+      "minimum": {
+        "cpu": "4 cores",
+        "ram": "8GB",
+        "gpu": "None (YOLO CPU mode)",
+        "storage": "50GB"
+      },
+      "recommended": {
+        "cpu": "8 cores",
+        "ram": "16GB",
+        "gpu": "NVIDIA 8GB VRAM (YOLO + CLIP GPU)",
+        "storage": "500GB"
+      },
+      "enterprise": {
+        "cpu": "16 cores",
+        "ram": "32GB",
+        "gpu": "NVIDIA 24GB VRAM",
+        "storage": "4TB NAS/MinIO cluster"
+      }
     },
     "ai_hardware_accelerators": [
       "NVIDIA GPU (CUDA, YOLO + CLIP)",
@@ -1367,7 +2114,6 @@
       "CPU (fallback, recommended minimum AVX2)"
     ]
   },
-
   "implementation_priorities": {
     "phase_1_mvp": {
       "description": "Core detection → review → notification pipeline fully working",
@@ -1419,7 +2165,6 @@
       ]
     }
   },
-
   "non_functional_requirements": {
     "performance": [
       "Detection pipeline latency: < 500ms from frame capture to DetectionEvent on bus",
@@ -1455,58 +2200,292 @@
       "MinIO cluster: S3-compatible, scales to petabytes"
     ]
   },
-
+  "delivery_scan": {
+    "scan_date": "2026-03-14",
+    "source_task_workbook": "argusv/TASKS (1).xlsx#Sheet1",
+    "source_prd": "argusv/ARGUSV_PRD.json",
+    "method": "Cross-checked workbook task groupings against the implemented FastAPI routes, background workers, static UIs, SQLAlchemy models, and tests under argusv/src, argusv/static, and argusv/tests.",
+    "feature_status_counts": {
+      "implemented": 7,
+      "todo": 19,
+      "partial": 26,
+      "scaffolding": 6
+    },
+    "implemented_highlights": [
+      "DET-01 through DET-04 are implemented in src/workers/edge_worker.py with YOLO tracking, motion gating, zone matching, and dwell/loiter lifecycle events.",
+      "ZONE-01 and the API-10/API-11 backend work are implemented in src/api/routes/zones.py with CRUD, polygon validation, and Redis hot-reload publishing.",
+      "API-12 through API-15 and DNVR replay/timeline support are implemented in src/api/routes/recordings.py and wired into static/recordings.html.",
+      "API-16 and API-17 are implemented in src/api/routes/incidents.py and exposed in the incidents review UI at static/incidents.html.",
+      "AUTH-01, AUTH-02, AUTH-06, and AUTH-07 have a working baseline in src/api/routes/auth.py, src/auth/jwt_handler.py, and src/api/routes/users.py."
+    ],
+    "partial_or_local_only": [
+      "REC-01 through REC-07 are only partially complete: the recorder, playlist, replay, snapshots, and cleanup flows exist, but they currently use local filesystem paths instead of real MinIO-backed object storage.",
+      "VLM-06 and VLM-07 have a working baseline via src/api/routes/rag.py and src/workers/rag_worker.py, but they use sentence-transformer text embeddings, not full CLIP/image search, and they do not provide reindex or chat workflows.",
+      "CFG-01 has runtime config and notification-rule APIs in src/api/routes/configuration.py, but versioning, restore flows, and a settings UI are still missing.",
+      "STATS-01 has a collector in src/stats/emitter.py, but /api/stats and /metrics are not currently wired into the FastAPI app."
+    ],
+    "stubbed_or_missing": [
+      "PTZ control and MQTT actuation remain scaffolding in src/ptz/autotrack.py and src/workers/actuation_worker.py.",
+      "The review queue/grouping system is not operational yet; src/review/maintainer.py is still TODO-based scaffolding and is not started by api/server.py.",
+      "WATCH-02, WATCH-03, WATCH-05, WATCH-07, and WATCH-08 are still incomplete; only queue-depth monitoring has real logic in src/workers/watchdog_worker.py.",
+      "WebPush, webhook, email, and real MQTT outbound delivery paths remain unimplemented or stubbed."
+    ],
+    "verification_notes": [
+      "The repository has targeted tests for auth, zones, queue stats, and segment linkage, but local python -m pytest -q did not complete in this environment because the ad-hoc Python runtime was missing pgvector and tests/test_api.py is still commented out."
+    ]
+  },
   "frigate_feature_parity_matrix": {
     "description": "Status of ArgusV feature parity with Frigate NVR 0.17.0",
     "items": [
-      {"feature": "Object Detection (YOLO)", "frigate": true, "argusv": "implemented"},
-      {"feature": "ByteTrack Tracking", "frigate": true, "argusv": "implemented"},
-      {"feature": "Zone-Based Detection", "frigate": true, "argusv": "implemented"},
-      {"feature": "Loitering Detection", "frigate": true, "argusv": "implemented"},
-      {"feature": "Motion Gating", "frigate": true, "argusv": "implemented"},
-      {"feature": "VLM Object Descriptions", "frigate": true, "argusv": "partial"},
-      {"feature": "Tiered VLM Inference", "frigate": false, "argusv": "implemented", "argusv_advantage": true},
-      {"feature": "Multi-Provider VLM", "frigate": true, "argusv": "partial (OpenAI only)"},
-      {"feature": "CLIP Semantic Search", "frigate": true, "argusv": "todo"},
-      {"feature": "Video RAG Chat", "frigate": false, "argusv": "todo", "argusv_advantage": true},
-      {"feature": "Face Recognition", "frigate": true, "argusv": "todo"},
-      {"feature": "License Plate Recognition", "frigate": true, "argusv": "todo"},
-      {"feature": "Audio Detection", "frigate": true, "argusv": "todo"},
-      {"feature": "HLS Recording", "frigate": true, "argusv": "scaffolding"},
-      {"feature": "Clip Export", "frigate": true, "argusv": "todo"},
-      {"feature": "Preview Video Generation", "frigate": true, "argusv": "todo"},
-      {"feature": "Snapshot System", "frigate": true, "argusv": "scaffolding"},
-      {"feature": "Review Queue (Triage)", "frigate": true, "argusv": "partial"},
-      {"feature": "Motion Review Mode", "frigate": true, "argusv": "todo"},
-      {"feature": "Zone Polygon Editor UI", "frigate": true, "argusv": "partial"},
-      {"feature": "Mask System", "frigate": true, "argusv": "todo"},
-      {"feature": "WebPush Notifications", "frigate": true, "argusv": "todo"},
-      {"feature": "MQTT Integration", "frigate": true, "argusv": "todo"},
-      {"feature": "Slack Notifications", "frigate": false, "argusv": "implemented", "argusv_advantage": true},
-      {"feature": "Webhook Notifications", "frigate": false, "argusv": "todo", "argusv_advantage": true},
-      {"feature": "JWT Authentication", "frigate": true, "argusv": "todo"},
-      {"feature": "Role-Based Access Control", "frigate": true, "argusv": "todo"},
-      {"feature": "Camera-Restricted Viewer Roles", "frigate": true, "argusv": "todo"},
-      {"feature": "PTZ ONVIF Control", "frigate": true, "argusv": "todo"},
-      {"feature": "PTZ Auto-Tracking", "frigate": true, "argusv": "scaffolding"},
-      {"feature": "MQTT Actuation (Siren/Relay)", "frigate": false, "argusv": "scaffolding", "argusv_advantage": true},
-      {"feature": "Birdseye View", "frigate": true, "argusv": "scaffolding"},
-      {"feature": "WebRTC Live Stream", "frigate": true, "argusv": "partial (via MediaMTX)"},
-      {"feature": "Home Assistant Integration", "frigate": true, "argusv": "not planned (MQTT as bridge)"},
-      {"feature": "Prometheus Metrics", "frigate": false, "argusv": "todo", "argusv_advantage": true},
-      {"feature": "PostgreSQL Storage", "frigate": false, "argusv": "implemented", "argusv_advantage": true},
-      {"feature": "MinIO S3 Storage", "frigate": false, "argusv": "implemented", "argusv_advantage": true},
-      {"feature": "pgvector Embeddings", "frigate": false, "argusv": "todo", "argusv_advantage": true},
-      {"feature": "Stationary Object Tracking", "frigate": true, "argusv": "todo"},
-      {"feature": "Speed Estimation", "frigate": true, "argusv": "todo"},
-      {"feature": "Bird Species Classification", "frigate": true, "argusv": "not planned (P3)"},
-      {"feature": "Custom Classification Models", "frigate": true, "argusv": "not planned (P3)"},
-      {"feature": "Frigate+ Custom Models", "frigate": true, "argusv": "not applicable"},
-      {"feature": "Storage Cleanup (Retention)", "frigate": true, "argusv": "scaffolding"},
-      {"feature": "Proxy Auth (Authelia/Authentik)", "frigate": true, "argusv": "todo (P2)"},
-      {"feature": "Add Camera Wizard", "frigate": true, "argusv": "todo"},
-      {"feature": "Semantic Search Triggers", "frigate": true, "argusv": "todo"},
-      {"feature": "Time-lapse Export", "frigate": true, "argusv": "todo"}
+      {
+        "feature": "Object Detection (YOLO)",
+        "frigate": true,
+        "argusv": "implemented"
+      },
+      {
+        "feature": "ByteTrack Tracking",
+        "frigate": true,
+        "argusv": "implemented"
+      },
+      {
+        "feature": "Zone-Based Detection",
+        "frigate": true,
+        "argusv": "implemented"
+      },
+      {
+        "feature": "Loitering Detection",
+        "frigate": true,
+        "argusv": "implemented"
+      },
+      {
+        "feature": "Motion Gating",
+        "frigate": true,
+        "argusv": "implemented"
+      },
+      {
+        "feature": "VLM Object Descriptions",
+        "frigate": true,
+        "argusv": "partial"
+      },
+      {
+        "feature": "Tiered VLM Inference",
+        "frigate": false,
+        "argusv": "implemented",
+        "argusv_advantage": true
+      },
+      {
+        "feature": "Multi-Provider VLM",
+        "frigate": true,
+        "argusv": "partial (OpenAI only)"
+      },
+      {
+        "feature": "CLIP Semantic Search",
+        "frigate": true,
+        "argusv": "partial"
+      },
+      {
+        "feature": "Video RAG Chat",
+        "frigate": false,
+        "argusv": "todo",
+        "argusv_advantage": true
+      },
+      {
+        "feature": "Face Recognition",
+        "frigate": true,
+        "argusv": "todo"
+      },
+      {
+        "feature": "License Plate Recognition",
+        "frigate": true,
+        "argusv": "todo"
+      },
+      {
+        "feature": "Audio Detection",
+        "frigate": true,
+        "argusv": "todo"
+      },
+      {
+        "feature": "HLS Recording",
+        "frigate": true,
+        "argusv": "partial"
+      },
+      {
+        "feature": "Clip Export",
+        "frigate": true,
+        "argusv": "partial"
+      },
+      {
+        "feature": "Preview Video Generation",
+        "frigate": true,
+        "argusv": "todo"
+      },
+      {
+        "feature": "Snapshot System",
+        "frigate": true,
+        "argusv": "partial"
+      },
+      {
+        "feature": "Review Queue (Triage)",
+        "frigate": true,
+        "argusv": "partial"
+      },
+      {
+        "feature": "Motion Review Mode",
+        "frigate": true,
+        "argusv": "todo"
+      },
+      {
+        "feature": "Zone Polygon Editor UI",
+        "frigate": true,
+        "argusv": "partial"
+      },
+      {
+        "feature": "Mask System",
+        "frigate": true,
+        "argusv": "todo"
+      },
+      {
+        "feature": "WebPush Notifications",
+        "frigate": true,
+        "argusv": "todo"
+      },
+      {
+        "feature": "MQTT Integration",
+        "frigate": true,
+        "argusv": "scaffolding"
+      },
+      {
+        "feature": "Slack Notifications",
+        "frigate": false,
+        "argusv": "partial",
+        "argusv_advantage": true
+      },
+      {
+        "feature": "Webhook Notifications",
+        "frigate": false,
+        "argusv": "todo",
+        "argusv_advantage": true
+      },
+      {
+        "feature": "JWT Authentication",
+        "frigate": true,
+        "argusv": "partial"
+      },
+      {
+        "feature": "Role-Based Access Control",
+        "frigate": true,
+        "argusv": "partial"
+      },
+      {
+        "feature": "Camera-Restricted Viewer Roles",
+        "frigate": true,
+        "argusv": "todo"
+      },
+      {
+        "feature": "PTZ ONVIF Control",
+        "frigate": true,
+        "argusv": "todo"
+      },
+      {
+        "feature": "PTZ Auto-Tracking",
+        "frigate": true,
+        "argusv": "scaffolding"
+      },
+      {
+        "feature": "MQTT Actuation (Siren/Relay)",
+        "frigate": false,
+        "argusv": "scaffolding",
+        "argusv_advantage": true
+      },
+      {
+        "feature": "Birdseye View",
+        "frigate": true,
+        "argusv": "scaffolding"
+      },
+      {
+        "feature": "WebRTC Live Stream",
+        "frigate": true,
+        "argusv": "todo"
+      },
+      {
+        "feature": "Home Assistant Integration",
+        "frigate": true,
+        "argusv": "not planned (MQTT as bridge)"
+      },
+      {
+        "feature": "Prometheus Metrics",
+        "frigate": false,
+        "argusv": "todo",
+        "argusv_advantage": true
+      },
+      {
+        "feature": "PostgreSQL Storage",
+        "frigate": false,
+        "argusv": "implemented",
+        "argusv_advantage": true
+      },
+      {
+        "feature": "MinIO S3 Storage",
+        "frigate": false,
+        "argusv": "scaffolding",
+        "argusv_advantage": true
+      },
+      {
+        "feature": "pgvector Embeddings",
+        "frigate": false,
+        "argusv": "partial",
+        "argusv_advantage": true
+      },
+      {
+        "feature": "Stationary Object Tracking",
+        "frigate": true,
+        "argusv": "todo"
+      },
+      {
+        "feature": "Speed Estimation",
+        "frigate": true,
+        "argusv": "todo"
+      },
+      {
+        "feature": "Bird Species Classification",
+        "frigate": true,
+        "argusv": "not planned (P3)"
+      },
+      {
+        "feature": "Custom Classification Models",
+        "frigate": true,
+        "argusv": "not planned (P3)"
+      },
+      {
+        "feature": "Frigate+ Custom Models",
+        "frigate": true,
+        "argusv": "not applicable"
+      },
+      {
+        "feature": "Storage Cleanup (Retention)",
+        "frigate": true,
+        "argusv": "partial"
+      },
+      {
+        "feature": "Proxy Auth (Authelia/Authentik)",
+        "frigate": true,
+        "argusv": "partial (header-based baseline only)"
+      },
+      {
+        "feature": "Add Camera Wizard",
+        "frigate": true,
+        "argusv": "todo"
+      },
+      {
+        "feature": "Semantic Search Triggers",
+        "frigate": true,
+        "argusv": "todo"
+      },
+      {
+        "feature": "Time-lapse Export",
+        "frigate": true,
+        "argusv": "todo"
+      }
     ]
   }
 }
