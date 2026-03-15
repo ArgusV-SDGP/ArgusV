@@ -132,6 +132,15 @@ async def get_current_user(
     proxy_user: Optional[str] = Header(default=None, alias=cfg.PROXY_AUTH_USER_HEADER),
     proxy_role: Optional[str] = Header(default=None, alias=cfg.PROXY_AUTH_ROLE_HEADER),
 ):
+    if cfg.DEV_AUTH_BYPASS:
+        return {
+            "auth_type": "bypass",
+            "subject": "dev-admin",
+            "username": "dev-admin",
+            "role": ROLE_ADMIN,
+            "scopes": [],
+        }
+
     if credentials and credentials.scheme.lower() == "bearer":
         payload = verify_token(credentials.credentials, expected_type="access")
         return {
