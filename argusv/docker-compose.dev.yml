@@ -49,7 +49,7 @@ services:
       MTX_RTSPADDRESS: :8554
       MTX_WEBRTCADDRESS: :8889
       MTX_HLSALWAYSREMUX: "yes"
-      MTX_HLSSEGMENTCOUNT: "3"
+      MTX_HLSSEGMENTCOUNT: "7"
       MTX_HLSSEGMENTDURATION: 2s
       MTX_HLSALLOWORIGIN: "*"
       MTX_LOGLEVEL: info
@@ -93,6 +93,23 @@ services:
       -an
       -f rtsp -rtsp_transport tcp
       rtsp://mediamtx:8554/cam-01
+
+  rtsp-sim-2:
+    image: jrottenberg/ffmpeg:5.1-alpine
+    container_name: argus-rtsp-sim-2
+    depends_on:
+      - mediamtx
+    restart: always
+    volumes:
+      - ./tmp:/videos:ro
+    command: >
+      -re -stream_loop -1
+      -i "/videos/demo2.mp4"
+      -vf "hue=h=90"
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -an
+      -f rtsp -rtsp_transport tcp
+      rtsp://mediamtx:8554/cam-02
 
 volumes:
   postgres_dev_data:
