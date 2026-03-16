@@ -59,7 +59,7 @@ FRAME_JPEG_Q     = int(os.getenv("FRAME_JPEG_Q", "60"))
 
 RECORDINGS_ENABLED   = os.getenv("RECORDINGS_ENABLED", "true").lower() == "true"
 SEGMENT_DURATION_SEC = int(os.getenv("SEGMENT_DURATION_SEC", "10"))
-SEGMENT_TMP_DIR      = os.getenv("SEGMENT_TMP_DIR", "/tmp/argus_segments")
+SEGMENT_TMP_DIR      = os.getenv("SEGMENT_TMP_DIR", "./tmp/argus_segments")
 RECORDINGS_RETAIN_DAYS = int(os.getenv("RECORDINGS_RETAIN_DAYS", "7"))
 LOCAL_RECORDINGS_DIR    = os.getenv("LOCAL_RECORDINGS_DIR", "/recordings")
 
@@ -98,6 +98,14 @@ MQTT_PASS = os.getenv("MQTT_PASS", "")
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8000"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+CORS_ALLOW_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ALLOW_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000",
+    ).split(",")
+    if origin.strip()
+]
 
 
 

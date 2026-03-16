@@ -21,7 +21,7 @@ logger = logging.getLogger("cleanup-worker")
 
 CLEANUP_INTERVAL_HOURS = int(os.getenv("CLEANUP_INTERVAL_HOURS", "6"))
 INCIDENT_RESOLVE_DAYS  = int(os.getenv("INCIDENT_RESOLVE_DAYS",  "30"))
-LOCAL_RECORDINGS_DIR   = os.getenv("LOCAL_RECORDINGS_DIR", "/recordings")
+LOCAL_RECORDINGS_DIR   = cfg.LOCAL_RECORDINGS_DIR   # uses ./recordings (matches all other workers)
 
 
 async def cleanup_worker():

@@ -13,8 +13,10 @@ import logging
 import time
 from pathlib import Path
 from contextlib import asynccontextmanager
+import config as cfg
 
 from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -28,6 +30,7 @@ from api.routes.incidents import router as incidents_router
 from api.routes.recordings import router as recordings_router
 from api.routes.configuration import router as configuration_router
 from api.routes.rag import router as rag_router
+from api.routes.users import router as users_router
 from workers.edge_worker import start_cameras, stop_cameras, cameras_health
 from workers.pipeline_worker import (
     stream_ingestion_worker,
@@ -40,6 +43,8 @@ from stats.emitter import get_stats, get_prometheus_metrics
 from workers.rag_worker import rag_semantic_worker
 from workers.snapshot_worker import snapshot_worker, clip_generation_worker
 from workers.cleanup_worker import cleanup_worker
+from workers.watchdog_worker import watchdog_worker
+from stats.emitter import get_stats, stats_emitter_worker
 
 logger = logging.getLogger("api.server")
 
@@ -56,6 +61,9 @@ async def lifespan(app: FastAPI):
     create_tables()
     logger.info("✅ Database schema ready")
 
+    from db.seed import seed_dev_data
+    seed_dev_data()
+
     # Camera threads (sync → async bridge)
     start_cameras(bus.raw_detections, loop)
 
@@ -70,6 +78,8 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(snapshot_worker(),          name="snapshot-worker"),
         asyncio.create_task(clip_generation_worker(),   name="clip-generator"),
         asyncio.create_task(cleanup_worker(),           name="cleanup-worker"),
+        asyncio.create_task(watchdog_worker(),          name="watchdog"),
+        asyncio.create_task(stats_emitter_worker(),     name="stats-emitter"),
         asyncio.create_task(manager.fan_out_loop(bus.alerts_ws), name="ws-fanout"),
     ]
 
@@ -88,17 +98,33 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ArgusV", version="1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cfg.CORS_ALLOW_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(auth_router)
 app.include_router(cameras_router)
 app.include_router(zones_router)
 app.include_router(incidents_router)
 app.include_router(recordings_router)
 app.include_router(configuration_router)
+app.include_router(users_router)
 app.include_router(rag_router)
 
-# ── Mount static files ────────────────────────────────────────────────────────
+# ── Mount static & media files ────────────────────────────────────────────────
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# Mount video recordings for playback (NVR Data Plane)
+# Serves /recordings/{cam_id}/*.ts
+RECORDINGS_PATH = Path(cfg.LOCAL_RECORDINGS_DIR)
+if RECORDINGS_PATH.exists():
+    app.mount("/recordings", StaticFiles(directory=str(RECORDINGS_PATH)), name="recordings")
+else:
+    logger.warning(f"⚠️ Recordings directory NOT found at {RECORDINGS_PATH}")
 
 
 # ── Dashboard HTML ────────────────────────────────────────────────────────────
@@ -149,6 +175,10 @@ async def birdseye_view():
     from output.birdseye import get_birdseye_composite
     from fastapi import Response
     return Response(content=get_birdseye_composite(), media_type="image/jpeg")
+
+@app.get("/api/stats")
+async def api_stats(_user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR))):
+    return get_stats()
 
 _START_TIME = time.time()
 

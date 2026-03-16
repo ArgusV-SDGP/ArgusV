@@ -20,13 +20,21 @@ router = APIRouter(tags=["recordings"])
 
 
 def _serialize_segment(seg: Segment) -> dict[str, Any]:
+    # Ensure minio_path (local path) is served as a web-accessible URL
+    # /recordings/cam-01/cam-01_123.ts
+    path = seg.minio_path
+    if "/recordings/" in path:
+        web_path = "/recordings/" + path.split("/recordings/")[-1].replace("\\", "/")
+    else:
+        web_path = path
+
     return {
         "segment_id": str(seg.segment_id),
         "camera_id": seg.camera_id,
         "start_time": seg.start_time.isoformat(),
         "end_time": seg.end_time.isoformat(),
         "duration_sec": seg.duration_sec,
-        "minio_path": seg.minio_path,
+        "url": web_path,
         "size_bytes": seg.size_bytes,
         "has_motion": seg.has_motion,
         "has_detections": seg.has_detections,
@@ -85,7 +93,10 @@ def hls_playlist(
     ]
     for seg in segs:
         lines.append(f"#EXTINF:{float(seg.duration_sec or 0):.3f},")
-        lines.append(seg.minio_path)
+        # Use web-accessible URL for the playlist
+        path = seg.minio_path
+        web_path = "/recordings/" + path.split("/recordings/")[-1].replace("\\", "/")
+        lines.append(web_path)
     lines.append("#EXT-X-ENDLIST")
     return PlainTextResponse(
         "\n".join(lines) + "\n",
