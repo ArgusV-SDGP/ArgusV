@@ -39,12 +39,10 @@ from workers.pipeline_worker import (
     notification_worker,
 )
 from workers.watchdog_worker import watchdog_worker
-from stats.emitter import get_stats, get_prometheus_metrics
+from stats.emitter import get_stats, get_prometheus_metrics, stats_emitter_worker
 from workers.rag_worker import rag_semantic_worker
 from workers.snapshot_worker import snapshot_worker, clip_generation_worker
 from workers.cleanup_worker import cleanup_worker
-from workers.watchdog_worker import watchdog_worker
-from stats.emitter import get_stats, stats_emitter_worker
 
 logger = logging.getLogger("api.server")
 
@@ -78,7 +76,6 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(snapshot_worker(),          name="snapshot-worker"),
         asyncio.create_task(clip_generation_worker(),   name="clip-generator"),
         asyncio.create_task(cleanup_worker(),           name="cleanup-worker"),
-        asyncio.create_task(watchdog_worker(),          name="watchdog"),
         asyncio.create_task(stats_emitter_worker(),     name="stats-emitter"),
         asyncio.create_task(manager.fan_out_loop(bus.alerts_ws), name="ws-fanout"),
     ]
