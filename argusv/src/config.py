@@ -128,6 +128,7 @@ CORS_ALLOW_ORIGINS = [
 
 # ── Authentication / Authorization ─────────────────────────────────────────── #
 
+DEV_AUTH_BYPASS = os.getenv("DEV_AUTH_BYPASS", "false").lower() == "true"
 JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
 JWT_REFRESH_EXPIRE_MINUTES = int(os.getenv("JWT_REFRESH_EXPIRE_MINUTES", "1440"))

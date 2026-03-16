@@ -151,7 +151,7 @@ alembic upgrade head
 
 ```bash
 # From the argusv/ directory
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload --app-dir src
+uvicorn main:app --host 1270.1--port 6969 --app-dir src
 ```
 
 The app will be available at:
