@@ -1790,8 +1790,22 @@
 
     // ── Live Camera Grid (HLS.js) ────────────────────────────────────────────
     const hlsInstances = new Map();
-    // MediaMTX HLS base URL — same host, port 8888
-    const MEDIAMTX_HLS_BASE = `${location.protocol}//${location.hostname}:8888`;
+    // MediaMTX HLS base URL — loaded from server config at boot
+    let MEDIAMTX_HLS_BASE = 'http://localhost:8888'; // safe fallback
+
+    async function loadUiConfig() {
+      try {
+        const res = await fetch('/api/config/ui');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.mediamtx_hls_base) {
+            MEDIAMTX_HLS_BASE = data.mediamtx_hls_base;
+          }
+        }
+      } catch (e) {
+        console.warn('[ArgusV] Could not load UI config, using fallback HLS base:', MEDIAMTX_HLS_BASE);
+      }
+    }
 
     function buildCameraGrid(cameras) {
       const grid = document.getElementById('camera-grid');
@@ -1958,6 +1972,7 @@
 
     // ── Boot ──────────────────────────────────────────────────────────────────
     async function boot() {
+      await loadUiConfig(); // load MEDIAMTX_HLS_BASE from server before anything else
       const me = await window.ArgusAuth.requireAuth();
       if (!me) return;
       currentUser = me;

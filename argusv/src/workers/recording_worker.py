@@ -77,14 +77,16 @@ class FFmpegRecorder:
             ]
             logger.info(f"[FFmpeg:{self.camera_id}] Starting: {' '.join(cmd)}")
             try:
+                # Don't capture stderr during debug - let it go to docker logs for visibility
                 self._proc = subprocess.Popen(
                     cmd,
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
+                    stderr=None,  # FFmpeg output goes to container stderr (visible in docker logs)
                 )
-                self._proc.wait()
+                exit_code = self._proc.wait()
+
                 if not self._stop.is_set():
-                    logger.warning(f"[FFmpeg:{self.camera_id}] Process exited — restarting in 3s")
+                    logger.warning(f"[FFmpeg:{self.camera_id}] Process exited with code {exit_code} — restarting in 3s")
                     self._stop.wait(3)
             except FileNotFoundError:
                 logger.error("[FFmpeg] ffmpeg binary not found! Install ffmpeg.")
@@ -140,10 +142,15 @@ class SegmentWatcher:
 
     def _scan(self):
         if not self._tmp_dir.exists():
+            logger.warning(f"[SegmentWatcher:{self.camera_id}] Tmp dir doesn't exist: {self._tmp_dir}")
             return
-        
+
         now = time.time()
-        for f in sorted(self._tmp_dir.glob(f"{self.camera_id}_*.ts")):
+        files = list(self._tmp_dir.glob(f"{self.camera_id}_*.ts"))
+        if len(files) > 0:
+            logger.debug(f"[SegmentWatcher:{self.camera_id}] Scanning {len(files)} files, {len(self._seen)} tracked")
+
+        for f in sorted(files):
             try:
                 size = f.stat().st_size
             except FileNotFoundError:
@@ -152,15 +159,23 @@ class SegmentWatcher:
             if f.name in self._seen:
                 last_size, stable_since = self._seen[f.name]
                 if size == last_size:
+                    stable_duration = now - stable_since
                     # File hasn't grown. Check IF it's been stable long enough.
-                    if (now - stable_since) >= self.STABLE_SEC:
+                    if stable_duration >= self.STABLE_SEC:
+                        logger.info(f"[SegmentWatcher:{self.camera_id}] File stable for {stable_duration:.1f}s: {f.name} ({size} bytes)")
                         if self._process_segment(f):
                             del self._seen[f.name]
+                        else:
+                            logger.warning(f"[SegmentWatcher:{self.camera_id}] Process failed, will retry: {f.name}")
+                    else:
+                        logger.debug(f"[SegmentWatcher:{self.camera_id}] Waiting for stability: {f.name} ({stable_duration:.1f}/{self.STABLE_SEC}s)")
                 else:
                     # File grew, reset stability timer
+                    logger.debug(f"[SegmentWatcher:{self.camera_id}] File growing: {f.name} ({last_size} → {size} bytes)")
                     self._seen[f.name] = (size, now)
             else:
                 # First time seeing this file
+                logger.debug(f"[SegmentWatcher:{self.camera_id}] New file detected: {f.name} ({size} bytes)")
                 self._seen[f.name] = (size, now)
 
     def _process_segment(self, ts_file: Path) -> bool:
@@ -241,12 +256,16 @@ class CameraRecorder:
 
     def __init__(self, camera_id: str, rtsp_url: str,
                  bus_queue: asyncio.Queue, loop: asyncio.AbstractEventLoop):
+        logger.info(f"[CameraRecorder:{camera_id}] Initializing with RTSP: {rtsp_url}")
         self._recorder = FFmpegRecorder(camera_id, rtsp_url)
         self._watcher  = SegmentWatcher(camera_id, bus_queue, loop)
+        logger.info(f"[CameraRecorder:{camera_id}] ✅ Created")
 
     def start(self):
+        logger.info(f"[CameraRecorder:{self._recorder.camera_id}] Starting FFmpegRecorder and SegmentWatcher")
         self._recorder.start()
         self._watcher.start()
+        logger.info(f"[CameraRecorder:{self._recorder.camera_id}] ✅ Started")
 
     def stop(self):
         self._recorder.stop()

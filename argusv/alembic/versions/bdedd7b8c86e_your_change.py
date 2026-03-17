@@ -16,7 +16,7 @@ from pgvector.sqlalchemy import Vector
 revision: str = 'bdedd7b8c86e'
 down_revision: Union[str, Sequence[str], None] = '820eaa05584c'
 branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = '7a29e046a79a'
 
 
 def upgrade() -> None:

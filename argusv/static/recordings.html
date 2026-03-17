@@ -1,10 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-    <title>ArgusV — NVR Recordings</title>
+    <title>ArgusV â€” NVR Recordings</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
         rel="stylesheet" />
@@ -297,7 +297,7 @@
 
     <header>
         <a href="/" class="brand">
-            <div class="brand-icon">👁️</div>
+            <div class="brand-icon">ðŸ‘ï¸</div>
             ArgusV
         </a>
         <div class="controls">
@@ -356,6 +356,9 @@
         let currentWindow = { start: null, end: null };
         let markers = [];
         let eventsOnly = false;
+        // Wall-clock start time of the HLS VOD â€” set once manifest is loaded
+        // HLS.js exposes this via EXT-X-PROGRAM-DATE-TIME
+        let playlistStartWallClock = null;
 
         const video = document.getElementById('nvr-player');
         const canvas = document.getElementById('bbox-overlay');
@@ -372,19 +375,36 @@
         const today = new Date().toISOString().split('T')[0];
         datePicker.value = today;
 
+        // â”€â”€ Auth-aware fetch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        async function apiFetch(url, options = {}) {
+            if (window.ArgusAuth && window.ArgusAuth.authFetch) {
+                return window.ArgusAuth.authFetch(url, options);
+            }
+            // Fallback (dev bypass)
+            return fetch(url, options);
+        }
+
+        // â”€â”€ Init â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         async function init() {
-            // Check for deep-link from incident
+            if (window.ArgusAuth) {
+                const me = await window.ArgusAuth.requireAuth();
+                if (!me) return;
+            }
+
             const urlParams = new URLSearchParams(window.location.search);
             const incidentId = urlParams.get('incident_id');
 
-            // Load cameras
-            const camsRes = await fetch(`${API_BASE}/cameras`);
-            if (camsRes.ok) {
-                const cameras = await camsRes.json();
-                camSelector.innerHTML = cameras.map(c => `<option value="${c.camera_id}">${c.name}</option>`).join('');
-                if (cameras.length > 0) {
-                    currentCam = cameras[0].camera_id;
+            try {
+                const camsRes = await apiFetch(`${API_BASE}/cameras`);
+                if (camsRes.ok) {
+                    const cameras = await camsRes.json();
+                    camSelector.innerHTML = cameras.map(c =>
+                        `<option value="${c.camera_id}">${c.name}</option>`
+                    ).join('');
+                    if (cameras.length > 0) currentCam = cameras[0].camera_id;
                 }
+            } catch (e) {
+                console.error('Failed to load cameras', e);
             }
 
             if (incidentId) {
@@ -393,25 +413,25 @@
                 await loadDailyTimeline();
             }
 
-            // Sync canvas resize
-            const observer = new ResizeObserver(() => resizeCanvas());
-            observer.observe(video);
+            // Canvas resize sync
+            new ResizeObserver(() => resizeCanvas()).observe(video);
 
-            // Bbox render loop tracking video time
-            video.addEventListener('timeupdate', () => drawBBoxes());
+            // BBox overlay loop
+            video.addEventListener('timeupdate', () => {
+                updatePlayhead();
+                drawBBoxes();
+            });
 
-            // Bind Timeline Seeking
+            // Timeline click â†’ seek
             tlTrack.addEventListener('click', (e) => {
                 if (!currentWindow.start) return;
                 const rect = tlTrack.getBoundingClientRect();
-                const pct = (e.clientX - rect.left) / rect.width;
-                const durationRange = currentWindow.end.getTime() - currentWindow.start.getTime();
-                const targetTime = new Date(currentWindow.start.getTime() + (durationRange * pct));
-
-                seekToTime(targetTime);
+                const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+                const spanMs = currentWindow.end.getTime() - currentWindow.start.getTime();
+                const targetWall = new Date(currentWindow.start.getTime() + spanMs * pct);
+                seekToWallClock(targetWall);
             });
 
-            // UI Listeners
             camSelector.addEventListener('change', (e) => {
                 currentCam = e.target.value;
                 loadDailyTimeline();
@@ -421,200 +441,287 @@
             document.getElementById('btn-events-only').addEventListener('click', (e) => {
                 eventsOnly = !eventsOnly;
                 e.target.classList.toggle('active', eventsOnly);
-                loadDailyTimeline(); // Reload timeline with filter
+                loadDailyTimeline();
             });
 
             document.getElementById('btn-download').addEventListener('click', () => {
-                alert("Task DNVR-07: Generating clip from backend...");
+                downloadCurrentSegment();
             });
         }
 
+        // â”€â”€ Load daily view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         async function loadDailyTimeline() {
             if (!currentCam) return;
             const selectedDate = datePicker.value;
             if (!selectedDate) return;
 
-            const startStr = `${selectedDate}T00:00:00Z`;
-            const endStr = `${selectedDate}T23:59:59Z`;
+            const startStr = `${selectedDate}T00:00:00`;
+            const endStr   = `${selectedDate}T23:59:59`;
 
             currentWindow.start = new Date(startStr);
-            currentWindow.end = new Date(endStr);
+            currentWindow.end   = new Date(endStr);
 
-            document.getElementById('tl-start-lbl').textContent = "00:00";
-            document.getElementById('tl-end-lbl').textContent = "23:59";
+            document.getElementById('tl-start-lbl').textContent = '00:00';
+            document.getElementById('tl-end-lbl').textContent   = '23:59';
+            statusSpan.textContent = 'Loading timelineâ€¦';
 
-            let tlUrl = `${API_BASE}/recordings/${currentCam}/timeline?start=${startStr}&end=${endStr}`;
-            if (eventsOnly) tlUrl += "&threats_only=true";
+            let tlUrl = `${API_BASE}/recordings/${currentCam}/timeline?start=${encodeURIComponent(startStr)}&end=${encodeURIComponent(endStr)}`;
+            if (eventsOnly) tlUrl += '&threats_only=true';
 
             try {
-                const res = await fetch(tlUrl);
-                if (res.ok) {
-                    const data = await res.json();
+                const [tlRes, playlistCheck] = await Promise.all([
+                    apiFetch(tlUrl),
+                    apiFetch(`${API_BASE}/recordings/${currentCam}/playlist?start=${encodeURIComponent(startStr)}&end=${encodeURIComponent(endStr)}`),
+                ]);
+
+                markers = [];
+                if (tlRes.ok) {
+                    const data = await tlRes.json();
                     markers = data.markers || [];
-                    renderBlips();
-                } else {
-                    markers = [];
-                    renderBlips();
                 }
+                renderBlips();
 
-                // Load the standard playlist for the entire day (Note: in production this might be heavy, but supports seeking)
-                const playUrl = `${API_BASE}/recordings/${currentCam}/playlist?start=${startStr}&end=${endStr}`;
-                loadPlaylist(playUrl);
-
+                if (playlistCheck.ok) {
+                    // Playlist exists â€” load it
+                    const playUrl = `${API_BASE}/recordings/${currentCam}/playlist?start=${encodeURIComponent(startStr)}&end=${encodeURIComponent(endStr)}`;
+                    loadPlaylist(playUrl);
+                } else if (playlistCheck.status === 404) {
+                    statusSpan.textContent = 'No recordings for this day';
+                    if (hls) { hls.destroy(); hls = null; }
+                    video.src = '';
+                } else {
+                    statusSpan.textContent = 'Error loading playlist';
+                }
             } catch (e) {
-                console.error("Timeline load failed", e);
+                console.error('Timeline load failed', e);
+                statusSpan.textContent = 'Network error â€” check server';
             }
         }
 
+        // â”€â”€ Incident replay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         async function loadIncidentReplay(incidentId) {
             try {
-                const res = await fetch(`${API_BASE}/incidents/${incidentId}/replay`);
-                if (res.ok) {
-                    const data = await res.json();
-                    currentCam = data.camera_id;
-                    camSelector.value = currentCam;
-                    currentWindow.start = new Date(data.window.start);
-                    currentWindow.end = new Date(data.window.end);
+                const res = await apiFetch(`${API_BASE}/incidents/${incidentId}/replay`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
 
-                    document.getElementById('tl-start-lbl').textContent = currentWindow.start.toLocaleTimeString();
-                    document.getElementById('tl-end-lbl').textContent = currentWindow.end.toLocaleTimeString();
+                currentCam = data.camera_id;
+                camSelector.value = currentCam;
+                currentWindow.start = new Date(data.window.start);
+                currentWindow.end   = new Date(data.window.end);
 
-                    // Fetch markers for this incident window
-                    const tlRes = await fetch(data.timeline_url);
-                    if (tlRes.ok) {
-                        const tlData = await tlRes.json();
-                        markers = tlData.markers || [];
-                        renderBlips();
-                    }
+                document.getElementById('tl-start-lbl').textContent = currentWindow.start.toLocaleTimeString();
+                document.getElementById('tl-end-lbl').textContent   = currentWindow.end.toLocaleTimeString();
 
-                    loadPlaylist(data.playlist_url);
-
-                    // Show custom status
-                    statusSpan.textContent = `Replaying Incident: ${incidentId.slice(0, 8)}`;
-                    document.querySelector('.live-dot').style.background = '#f59e0b';
-                    document.querySelector('.live-dot').style.boxShadow = '0 0 8px #f59e0b';
+                const tlRes = await apiFetch(data.timeline_url);
+                if (tlRes.ok) {
+                    const tlData = await tlRes.json();
+                    markers = tlData.markers || [];
+                    renderBlips();
                 }
+
+                loadPlaylist(data.playlist_url);
+
+                statusSpan.textContent = `Incident: ${incidentId.slice(0, 8)}â€¦`;
+                document.querySelector('.live-dot').style.background = '#f59e0b';
+                document.querySelector('.live-dot').style.boxShadow = '0 0 8px #f59e0b';
             } catch (e) {
-                console.error("Incident Replay failed", e);
-                alert("Failed to load incident replay.");
+                console.error('Incident Replay failed', e);
+                statusSpan.textContent = 'Failed to load incident replay';
             }
         }
 
+        // â”€â”€ HLS Playlist loader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         function loadPlaylist(url) {
-            statusSpan.textContent = "Loading segments...";
+            statusSpan.textContent = 'Loading segmentsâ€¦';
+            playlistStartWallClock = null;
 
             if (Hls.isSupported()) {
                 if (hls) hls.destroy();
                 hls = new Hls({
                     enableWorker: true,
-                    maxBufferLength: 30,
+                    maxBufferLength: 60,
+                    // Use XHR loader so auth cookies/headers propagate
+                    xhrSetup: function (xhr) {
+                        // If there's a token in session storage, attach it
+                        const token = sessionStorage.getItem('argus_token');
+                        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+                    },
                 });
                 hls.loadSource(url);
                 hls.attachMedia(video);
-                hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    statusSpan.textContent = "NVR Playback Ready";
-                    video.play().catch(e => console.log("Auto-play blocked"));
+
+                hls.on(Hls.Events.MANIFEST_PARSED, (_evt, data) => {
+                    statusSpan.textContent = `NVR Ready â€” ${data.levels.length} quality level(s)`;
+                    video.play().catch(() => {});
                 });
-                hls.on(Hls.Events.ERROR, (event, data) => {
-                    if (data.fatal) {
-                        statusSpan.textContent = "Playback Error / No Segments";
+
+                // Capture program-date-time so we can do wall-clock seeking
+                hls.on(Hls.Events.FRAG_CHANGED, (_evt, data) => {
+                    if (data.frag && data.frag.programDateTime && !playlistStartWallClock) {
+                        // The first fragment's program date time, minus its offset from start
+                        playlistStartWallClock = new Date(data.frag.programDateTime - data.frag.startPTS * 1000);
                     }
                 });
+
+                hls.on(Hls.Events.ERROR, (_evt, data) => {
+                    console.warn('[HLS Error]', data.type, data.details, data.fatal);
+                    if (data.fatal) {
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                statusSpan.textContent = 'Network error â€” retryingâ€¦';
+                                hls.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                statusSpan.textContent = 'Media error â€” recoveringâ€¦';
+                                hls.recoverMediaError();
+                                break;
+                            default:
+                                statusSpan.textContent = 'Playback failed â€” no segments?';
+                                hls.destroy();
+                                break;
+                        }
+                    }
+                });
+
             } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // Safari native HLS
                 video.src = url;
                 video.addEventListener('loadedmetadata', () => {
+                    statusSpan.textContent = 'NVR Ready (native HLS)';
                     video.play();
                 });
+            } else {
+                statusSpan.textContent = 'HLS not supported in this browser';
             }
         }
 
+        // â”€â”€ Wall-clock seeking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        function seekToWallClock(targetDate) {
+            if (!video.duration) return;
+
+            if (playlistStartWallClock) {
+                // Accurate path: we know the exact wall-clock start of the VOD
+                const offsetSec = (targetDate.getTime() - playlistStartWallClock.getTime()) / 1000;
+                if (offsetSec >= 0 && offsetSec <= video.duration) {
+                    video.currentTime = offsetSec;
+                    return;
+                }
+            }
+
+            // Fallback: proportional estimate (less accurate but always works)
+            const spanMs = currentWindow.end.getTime() - currentWindow.start.getTime();
+            const offsetMs = targetDate.getTime() - currentWindow.start.getTime();
+            const pct = Math.min(1, Math.max(0, offsetMs / spanMs));
+            video.currentTime = pct * video.duration;
+        }
+
+        // â”€â”€ Timeline rendering â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         function renderBlips() {
             blipsContainer.innerHTML = '';
-            const rangeSpan = currentWindow.end.getTime() - currentWindow.start.getTime();
+            if (!currentWindow.start) return;
+            const spanMs = currentWindow.end.getTime() - currentWindow.start.getTime();
 
             markers.forEach(mark => {
                 const dt = new Date(mark.timestamp).getTime();
                 if (dt >= currentWindow.start.getTime() && dt <= currentWindow.end.getTime()) {
-                    const pct = ((dt - currentWindow.start.getTime()) / rangeSpan) * 100;
-
+                    const pct = ((dt - currentWindow.start.getTime()) / spanMs) * 100;
                     const blip = document.createElement('div');
                     blip.className = 'timeline-blip';
                     if (mark.threat_level === 'HIGH') blip.classList.add('threat-high');
                     else if (mark.threat_level === 'MEDIUM') blip.classList.add('threat-medium');
-
                     blip.style.left = `${pct}%`;
-                    blip.title = `${new Date(mark.timestamp).toLocaleTimeString()} - ${mark.object_class}`;
+                    blip.title = `${new Date(mark.timestamp).toLocaleTimeString()} â€” ${mark.object_class}`;
                     blipsContainer.appendChild(blip);
                 }
             });
         }
 
-        function seekToTime(targetDate) {
-            // Very simplified seeking assumption based on HLS mapping
-            // In a real NVR, you'd calculate offsets exactly. Here we map percentage of window to video duration.
-            const rangeSpan = currentWindow.end.getTime() - currentWindow.start.getTime();
-            const offsetMs = targetDate.getTime() - currentWindow.start.getTime();
+        function updatePlayhead() {
+            if (!video.duration || !currentWindow.start) return;
 
-            if (video.duration) {
-                const targetSec = (offsetMs / rangeSpan) * video.duration;
-                video.currentTime = targetSec;
+            let pct;
+            if (playlistStartWallClock) {
+                const videoWallMs = playlistStartWallClock.getTime() + video.currentTime * 1000;
+                const spanMs = currentWindow.end.getTime() - currentWindow.start.getTime();
+                pct = Math.min(1, Math.max(0, (videoWallMs - currentWindow.start.getTime()) / spanMs));
+                tlIndicator.textContent = new Date(videoWallMs).toLocaleTimeString();
+            } else {
+                pct = video.currentTime / video.duration;
+                const spanMs = currentWindow.end.getTime() - currentWindow.start.getTime();
+                const approxMs = currentWindow.start.getTime() + spanMs * pct;
+                tlIndicator.textContent = new Date(approxMs).toLocaleTimeString();
             }
+            playhead.style.left = `${pct * 100}%`;
         }
 
-        // Bounding Box Logic (DNVR-05)
+        // â”€â”€ BBox overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         function resizeCanvas() {
-            if (!video) return;
-            canvas.width = video.clientWidth;
+            canvas.width  = video.clientWidth;
             canvas.height = video.clientHeight;
         }
 
         function drawBBoxes() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
             if (!video.duration) return;
 
-            // Map video.currentTime to our real-world window
-            const rangeSpan = currentWindow.end.getTime() - currentWindow.start.getTime();
-            const pct = video.currentTime / video.duration;
-            const currentActualTimeMs = currentWindow.start.getTime() + (rangeSpan * pct);
+            let currentWallMs;
+            if (playlistStartWallClock) {
+                currentWallMs = playlistStartWallClock.getTime() + video.currentTime * 1000;
+            } else {
+                const pct = video.currentTime / video.duration;
+                const spanMs = currentWindow.end.getTime() - currentWindow.start.getTime();
+                currentWallMs = currentWindow.start.getTime() + spanMs * pct;
+            }
 
-            // Move playhead
-            playhead.style.left = `${pct * 100}%`;
-            tlIndicator.textContent = new Date(currentActualTimeMs).toLocaleTimeString();
-
-            // Find markers close to this timestamp (+/- 1 second)
             const activeMarkers = markers.filter(m => {
-                const mkTime = new Date(m.timestamp).getTime();
-                return Math.abs(mkTime - currentActualTimeMs) <= 1500; // 1.5s tolerance
+                const mkMs = new Date(m.timestamp).getTime();
+                return Math.abs(mkMs - currentWallMs) <= 1500;
             });
 
             activeMarkers.forEach(mark => {
-                if (mark.bbox && mark.bbox.x1 != null) {
-                    const x = mark.bbox.x1 * canvas.width;
-                    const y = mark.bbox.y1 * canvas.height;
-                    const w = (mark.bbox.x2 - mark.bbox.x1) * canvas.width;
-                    const h = (mark.bbox.y2 - mark.bbox.y1) * canvas.height;
+                if (!mark.bbox || mark.bbox.x1 == null) return;
+                const x = mark.bbox.x1 * canvas.width;
+                const y = mark.bbox.y1 * canvas.height;
+                const w = (mark.bbox.x2 - mark.bbox.x1) * canvas.width;
+                const h = (mark.bbox.y2 - mark.bbox.y1) * canvas.height;
 
-                    // Design
-                    const isThreat = mark.is_threat;
-                    ctx.strokeStyle = isThreat ? '#ef4444' : '#3b82f6';
-                    ctx.lineWidth = 2;
-                    ctx.fillStyle = isThreat ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)';
+                const isThreat = mark.is_threat;
+                ctx.strokeStyle = isThreat ? '#ef4444' : '#3b82f6';
+                ctx.lineWidth   = 2;
+                ctx.fillStyle   = isThreat ? 'rgba(239,68,68,0.1)' : 'rgba(59,130,246,0.1)';
+                ctx.fillRect(x, y, w, h);
+                ctx.strokeRect(x, y, w, h);
 
-                    ctx.fillRect(x, y, w, h);
-                    ctx.strokeRect(x, y, w, h);
-
-                    // Label
-                    ctx.fillStyle = isThreat ? '#ef4444' : '#3b82f6';
-                    ctx.font = '500 12px Inter';
-                    const label = `${mark.object_class} ${mark.threat_level ? `| ${mark.threat_level}` : ''}`;
-                    const textWidth = ctx.measureText(label).width;
-                    ctx.fillRect(x, y - 20, textWidth + 8, 20);
-
-                    ctx.fillStyle = 'white';
-                    ctx.fillText(label, x + 4, y - 6);
-                }
+                ctx.fillStyle = isThreat ? '#ef4444' : '#3b82f6';
+                ctx.font = '500 12px Inter';
+                const label = `${mark.object_class}${mark.threat_level ? ' | ' + mark.threat_level : ''}`;
+                const tw = ctx.measureText(label).width;
+                ctx.fillRect(x, y - 20, tw + 8, 20);
+                ctx.fillStyle = 'white';
+                ctx.fillText(label, x + 4, y - 6);
             });
+        }
+
+        // â”€â”€ Download current segment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        function downloadCurrentSegment() {
+            if (!currentCam || !currentWindow.start) return;
+            let wallMs;
+            if (playlistStartWallClock && video.duration) {
+                wallMs = playlistStartWallClock.getTime() + video.currentTime * 1000;
+            } else {
+                wallMs = currentWindow.start.getTime();
+            }
+            const ts = new Date(wallMs).toISOString();
+            const url = `${API_BASE}/recordings/${currentCam}/segment-at?ts=${encodeURIComponent(ts)}`;
+            apiFetch(url).then(r => r.json()).then(seg => {
+                if (seg.url) {
+                    const a = document.createElement('a');
+                    a.href = seg.url;
+                    a.download = '';
+                    a.click();
+                }
+            }).catch(e => alert('Could not find segment at current time'));
         }
 
         window.addEventListener('DOMContentLoaded', init);

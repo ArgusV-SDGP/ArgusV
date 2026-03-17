@@ -114,6 +114,7 @@ MQTT_PASS = os.getenv("MQTT_PASS", "")
 
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8000"))
+MEDIAMTX_HLS_BASE = os.getenv("MEDIAMTX_HLS_BASE", "http://localhost:8888")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 CORS_ALLOW_ORIGINS = [
     origin.strip()
@@ -144,6 +145,10 @@ API_KEYS_JSON = os.getenv(
 PROXY_AUTH_ENABLED = os.getenv("PROXY_AUTH_ENABLED", "false").lower() == "true"
 PROXY_AUTH_USER_HEADER = os.getenv("PROXY_AUTH_USER_HEADER", "x-forwarded-user")
 PROXY_AUTH_ROLE_HEADER = os.getenv("PROXY_AUTH_ROLE_HEADER", "x-forwarded-role")
+
+# ── Development Auth Bypass ──────────────────────────────────────────────────
+# When true, ALL requests are treated as ADMIN — never use in production!
+DEV_AUTH_BYPASS = os.getenv("DEV_AUTH_BYPASS", "false").lower() == "true"
 
 try:
     AUTH_USERS = _json.loads(AUTH_USERS_JSON) if AUTH_USERS_JSON else {}

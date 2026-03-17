@@ -19,7 +19,7 @@ services:
 
       # ── Camera (single cam, override with CAMERAS for multi) ───
       CAMERA_ID: "cam-01"
-      RTSP_URL: "rtsp://mediamtx:8554/cam-01"
+      RTSP_URL: "rtsp://mediamtx:8554/cam2"  # Temporarily using cam2 (cam-01 path fails)
 
       # ── Detection ────────────────────────────
       DETECT_FPS: "5"
@@ -32,8 +32,9 @@ services:
       EMBED_FRAME: "true"
 
       # ── Recording ────────────────────────────
-      RECORDINGS_ENABLED: "false" # enable when MinIO or local disk ready
+      RECORDINGS_ENABLED: "true"  # ✅ ENABLED for local recording
       SEGMENT_TMP_DIR: "/tmp/argus_segments"
+      LOCAL_RECORDINGS_DIR: "/recordings"
 
       # ── VLM ──────────────────────────────────
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -47,7 +48,8 @@ services:
       LOG_LEVEL: "INFO"
 
     volumes:
-      - /tmp/argus_segments:/tmp/argus_segments
+      - ./tmp/argus_segments:/tmp/argus_segments
+      - ./recordings:/recordings
     depends_on:
       postgres:
         condition: service_healthy
@@ -100,7 +102,7 @@ services:
       MTX_RTSPADDRESS: :8554
       MTX_WEBRTCADDRESS: :8889
       MTX_HLSALWAYSREMUX: "yes"
-      MTX_HLSSEGMENTCOUNT: "3"
+      MTX_HLSSEGMENTCOUNT: "7"
       MTX_HLSSEGMENTDURATION: 2s
       MTX_HLSALLOWORIGIN: "*"
       MTX_LOGLEVEL: info

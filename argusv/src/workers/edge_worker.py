@@ -61,6 +61,9 @@ class FrameBuffer:
         self._frame_count = 0
         self._connected   = False
         self._cap: Optional[cv2.VideoCapture] = None
+        self._bad_frame_count = 0
+        self._max_bad_frames = 10
+        self._last_good_frame_ts = 0.0
 
     def start(self):
         self._stop.clear()
@@ -124,16 +127,58 @@ class FrameBuffer:
                     continue
 
             t0 = time.monotonic()
-            ret, frame = self._cap.read()
-            if not ret or frame is None:
-                logger.warning(f"[FrameBuffer:{self.camera_id}] Read failed — reconnecting")
+            try:
+                ret, frame = self._cap.read()
+            except cv2.error as e:
+                logger.warning(
+                    f"[FrameBuffer:{self.camera_id}] cv2 error during read: {e} — reconnecting"
+                )
                 self._connected = False
-                self._cap.release()
+                self._bad_frame_count = 0
+                try:
+                    self._cap.release()
+                except Exception:
+                    pass
+                self._stop.wait(retry_delay)
+                retry_delay = min(retry_delay * 2, 30)
+                continue
+            except Exception as e:
+                logger.error(
+                    f"[FrameBuffer:{self.camera_id}] Unexpected read error: {e} — reconnecting"
+                )
+                self._connected = False
+                self._bad_frame_count = 0
+                try:
+                    self._cap.release()
+                except Exception:
+                    pass
+                self._stop.wait(retry_delay)
+                retry_delay = min(retry_delay * 2, 30)
                 continue
 
+            if not ret or frame is None:
+                self._bad_frame_count += 1
+                if self._bad_frame_count >= self._max_bad_frames:
+                    logger.warning(
+                        f"[FrameBuffer:{self.camera_id}] "
+                        f"{self._bad_frame_count} consecutive bad frames — reconnecting"
+                    )
+                    self._connected = False
+                    self._bad_frame_count = 0
+                    self._cap.release()
+                else:
+                    logger.debug(
+                        f"[FrameBuffer:{self.camera_id}] Bad frame "
+                        f"({self._bad_frame_count}/{self._max_bad_frames}), skipping"
+                    )
+                continue
+
+            # good frame — reset error counter
+            self._bad_frame_count = 0
+            self._last_good_frame_ts = time.time()
             cf = CapturedFrame(
                 frame=frame,
-                timestamp=time.time(),
+                timestamp=self._last_good_frame_ts,
                 frame_id=self._frame_count,
             )
             with self._lock:
@@ -480,12 +525,14 @@ class CameraWorker:
         self._detect   = DetectLoop(camera_id, self._buf, bus_queue, loop, zone_matcher)
         self._recorder = None
 
+        logger.info(f"[CameraWorker:{camera_id}] RECORDINGS_ENABLED={cfg.RECORDINGS_ENABLED}")
         if cfg.RECORDINGS_ENABLED:
             try:
                 from workers.recording_worker import CameraRecorder
                 self._recorder = CameraRecorder(camera_id, rtsp_url, bus_queue, loop)
+                logger.info(f"[CameraWorker:{camera_id}] ✅ Recorder initialized")
             except Exception as e:
-                logger.warning(f"[CameraWorker:{camera_id}] Recorder unavailable: {e}")
+                logger.error(f"[CameraWorker:{camera_id}] ❌ Recorder initialization failed: {e}", exc_info=True)
 
     def start(self):
         self._buf.start()
