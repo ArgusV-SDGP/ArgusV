@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(git add:*)",
-      "Bash(git commit -m \"feat: implement complete RAG pipeline with Milvus and CLIP embeddings:*)"
+      "Bash(git commit -m \"feat: implement complete RAG pipeline with Milvus and CLIP embeddings:*)",
+      "Bash(git commit -m \"feat: complete RAG pipeline with Milvus + configurable prompt system:*)"
     ]
   }
 }
