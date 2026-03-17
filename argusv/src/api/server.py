@@ -32,6 +32,8 @@ from api.routes.configuration import router as configuration_router
 from api.routes.rag import router as rag_router
 from api.routes.chat import router as chat_router
 from api.routes.users import router as users_router
+from api.routes.stats import router as stats_router
+from api.routes.metrics import router as metrics_router
 from workers.edge_worker import start_cameras, stop_cameras, cameras_health
 from workers.pipeline_worker import (
     stream_ingestion_worker,
@@ -112,6 +114,8 @@ app.include_router(configuration_router)
 app.include_router(users_router)
 app.include_router(rag_router)
 app.include_router(chat_router)
+app.include_router(stats_router)
+app.include_router(metrics_router)
 
 # ── Mount static & media files ────────────────────────────────────────────────
 if STATIC_DIR.exists():

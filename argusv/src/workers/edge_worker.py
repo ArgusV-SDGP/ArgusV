@@ -62,8 +62,8 @@ class FrameBuffer:
         self._connected   = False
         self._cap: Optional[cv2.VideoCapture] = None
         self._bad_frame_count = 0
-        self._max_bad_frames = 10
-        self._last_good_frame_ts = 0.0
+        self._max_bad_frames  = 10   # tolerate up to 10 consecutive decode errors
+        self._last_good_frame_ts: float = 0.0
 
     def start(self):
         self._stop.clear()
@@ -108,8 +108,9 @@ class FrameBuffer:
                     # Force RTSP over TCP to avoid "bad cseq" RTP UDP packet
                     # reordering errors that cause H264 decode failures.
                     os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
-                        "rtsp_transport;tcp|buffer_size;10485760"
+                        "rtsp_transport;tcp|buffer_size;10485760|threads;1"
                     )
+                    os.environ["OPENCV_FFMPEG_THREADS"] = "1"
                     self._cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
                     self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
                     if not self._cap.isOpened():
@@ -127,6 +128,7 @@ class FrameBuffer:
                     continue
 
             t0 = time.monotonic()
+<<<<<<< HEAD
             try:
                 ret, frame = self._cap.read()
             except cv2.error as e:
@@ -173,6 +175,27 @@ class FrameBuffer:
                     )
                 continue
 
+=======
+            ret, frame = self._cap.read()
+            if not ret or frame is None:
+                self._bad_frame_count += 1
+                if self._bad_frame_count >= self._max_bad_frames:
+                    logger.warning(
+                        f"[FrameBuffer:{self.camera_id}] "
+                        f"{self._bad_frame_count} consecutive bad frames — reconnecting"
+                    )
+                    self._connected = False
+                    self._bad_frame_count = 0
+                    self._cap.release()
+                else:
+                    # transient decode error — skip frame, don't reconnect
+                    logger.debug(
+                        f"[FrameBuffer:{self.camera_id}] Bad frame "
+                        f"({self._bad_frame_count}/{self._max_bad_frames}), skipping"
+                    )
+                continue
+
+>>>>>>> 5539cd3de2904064cfa4ea28bb33c2e024ecadd3
             # good frame — reset error counter
             self._bad_frame_count = 0
             self._last_good_frame_ts = time.time()
