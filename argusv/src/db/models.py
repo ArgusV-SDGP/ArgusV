@@ -148,7 +148,7 @@ class Detection(Base):
     is_threat    = Column(Boolean, nullable=True)
     threat_level = Column(String,  nullable=True)
     vlm_summary  = Column(Text,    nullable=True)
-    vlm_embedding= Column(Vector(384), nullable=True) # Semantic search vector
+    vlm_embedding= Column(Vector(1536), nullable=True) # text-embedding-3-small (1536 dims)
 
     camera_rel   = relationship("Camera",   back_populates="detections")
     segment      = relationship("Segment",  back_populates="detections")

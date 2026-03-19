@@ -25,6 +25,53 @@ logger = logging.getLogger("pipeline-worker")
 maintainer = EventMaintainer()
 
 
+def _build_snapshot_url(camera_id: Optional[str], event_id: Optional[str]) -> Optional[str]:
+    if not camera_id or not event_id:
+        return None
+    return f"/recordings/snapshots/{camera_id}/{camera_id}_{event_id}.jpg"
+
+# ── Redis rate limiter (lazy init) ────────────────────────────────────────────
+
+_redis = None
+
+
+async def _get_redis():
+    global _redis
+    if _redis is None:
+        try:
+            import redis.asyncio as aioredis
+            _redis = aioredis.from_url(cfg.REDIS_URL, decode_responses=True)
+            await _redis.ping()
+            logger.info("[Pipeline] Redis connected — rate limiting active")
+        except Exception as e:
+            logger.warning(f"[Pipeline] Redis unavailable, rate limiting disabled: {e}")
+            _redis = None
+    return _redis
+
+
+async def _is_rate_limited(camera_id: str, zone_name: str, object_class: str) -> bool:
+    r = await _get_redis()
+    if r is None:
+        return False
+    key = f"argus:rate:{camera_id}:{zone_name}:{object_class}"
+    try:
+        return bool(await r.exists(key))
+    except Exception:
+        return False
+
+
+async def _set_rate_limit(camera_id: str, zone_name: str, object_class: str):
+    r = await _get_redis()
+    if r is None:
+        return
+    key = f"argus:rate:{camera_id}:{zone_name}:{object_class}"
+    try:
+        await r.set(key, "1", ex=cfg.RATE_LIMIT_TTL)
+        logger.debug(f"[Pipeline] Rate limit set: {object_class} in '{zone_name}' for {cfg.RATE_LIMIT_TTL}s")
+    except Exception as e:
+        logger.debug(f"[Pipeline] Redis set failed: {e}")
+
+
 # ── Stage 1: VLM Request Builder ─────────────────────────────────────────────
 # Consumes raw_detections → enriches with frame url → puts on vlm_requests
 # (Replaces stream-ingestion service)
@@ -55,6 +102,17 @@ async def stream_ingestion_worker():
                 confidence >= cfg.CONF_THRESHOLD and
                 cfg.GENAI_PROVIDER != "disabled"
             )
+
+            # Rate limit: suppress repeat VLM + Slack for same object+zone within TTL window
+            if needs_vlm:
+                cam   = event.get("camera_id", "")
+                zone  = event.get("zone_name", "")
+                obj   = event.get("object_class", "")
+                if await _is_rate_limited(cam, zone, obj):
+                    logger.debug(f"[Pipeline] Rate limited: {obj} in '{zone}' on {cam}")
+                    needs_vlm = False
+                else:
+                    await _set_rate_limit(cam, zone, obj)
 
             # Always push to WebSocket immediately (fast alert path)
             alert = {
@@ -241,18 +299,40 @@ async def _process_decision(event: dict):
     from db.connection import get_db_session
     from db.models import Detection, Incident, Segment
     from datetime import datetime, timezone
+    from sqlalchemy import select
     import uuid
+    from genai.manager import embed_text
 
     vlm = event.get("vlm", {})
     is_threat    = vlm.get("is_threat", False)
     threat_level = vlm.get("threat_level", "LOW")
+    summary_text = vlm.get("summary", "")
+
+    # Embed the VLM description for semantic search (non-blocking — None if unavailable)
+    embedding = await embed_text(summary_text) if summary_text else None
+    if embedding:
+        logger.debug(f"[Pipeline] Embedded description ({len(embedding)} dims): {summary_text[:60]}...")
 
     async with get_db_session() as db:
+        det_ts = datetime.fromtimestamp(event.get("timestamp", time.time()), timezone.utc).replace(tzinfo=None)
+        thumbnail_url = _build_snapshot_url(event.get("camera_id"), event.get("event_id"))
+
+        # Find the segment that covers this detection's timestamp
+        seg_result = await db.execute(
+            select(Segment.segment_id)
+            .where(Segment.camera_id == event.get("camera_id"))
+            .where(Segment.start_time <= det_ts)
+            .where(Segment.end_time >= det_ts)
+            .limit(1)
+        )
+        segment_id = seg_result.scalar_one_or_none()
+
         # Write detection row
         det = Detection(
             event_id     = event.get("event_id"),
             camera_id    = event.get("camera_id"),
-            detected_at  = datetime.fromtimestamp(event.get("timestamp", time.time()), timezone.utc).replace(tzinfo=None),
+            segment_id   = segment_id,
+            detected_at  = det_ts,
             object_class = event.get("object_class", ""),
             confidence   = event.get("confidence", 0.0),
             zone_id      = event.get("zone_id"),
@@ -264,13 +344,15 @@ async def _process_decision(event: dict):
             bbox_y1      = event.get("bbox", {}).get("y1"),
             bbox_x2      = event.get("bbox", {}).get("x2"),
             bbox_y2      = event.get("bbox", {}).get("y2"),
+            thumbnail_url= thumbnail_url,
             is_threat    = is_threat,
             threat_level = threat_level,
-            vlm_summary  = vlm.get("summary"),
+            vlm_summary  = summary_text,
+            vlm_embedding= embedding,
         )
         db.add(det)
 
-        # Create incident for HIGH/MEDIUM threats
+        # Create incident for HIGH/MEDIUM threats and link detection → incident
         if is_threat and threat_level in ("HIGH", "MEDIUM"):
             inc = Incident(
                 camera_id    = event.get("camera_id"),
@@ -284,6 +366,8 @@ async def _process_decision(event: dict):
                 metadata_json= event,
             )
             db.add(inc)
+            await db.flush()          # assign inc.incident_id before linking
+            det.incident_id = inc.incident_id
 
         await db.commit()
 

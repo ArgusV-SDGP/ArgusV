@@ -258,3 +258,26 @@ def get_provider() -> GenAIProvider:
 
 # Singleton — imported by pipeline_worker
 provider: GenAIProvider = get_provider()
+
+
+# ── Text Embeddings ───────────────────────────────────────────────────────────
+
+async def embed_text(text: str) -> Optional[list[float]]:
+    """
+    Embed a text string using OpenAI text-embedding-3-small (1536 dims).
+    Returns None if no API key or request fails — Detection is still saved without embedding.
+    """
+    if not cfg.OPENAI_API_KEY or not text:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/embeddings",
+                headers={"Authorization": f"Bearer {cfg.OPENAI_API_KEY}"},
+                json={"model": cfg.EMBEDDING_MODEL, "input": text.strip()},
+            )
+            resp.raise_for_status()
+            return resp.json()["data"][0]["embedding"]
+    except Exception as e:
+        logger.warning(f"[Embeddings] embed_text failed: {e}")
+        return None

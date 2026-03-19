@@ -261,6 +261,7 @@ class PromptManager:
         camera_filter: Optional[str] = None,
         object_classes: Optional[list[str]] = None,
         priority: int = 0,
+        active: bool = True,
     ) -> PromptTemplate:
         """
         Create and save a new prompt template.
@@ -273,6 +274,7 @@ class PromptManager:
             camera_filter: Specific camera (None = all)
             object_classes: Specific object classes (empty = all)
             priority: Priority level (higher = preferred)
+            active: Whether the prompt is active
 
         Returns:
             Created PromptTemplate
@@ -285,6 +287,7 @@ class PromptManager:
             camera_filter=camera_filter,
             object_classes=object_classes or [],
             priority=priority,
+            active=active,
         )
 
         self._cache[str(prompt.prompt_id)] = prompt

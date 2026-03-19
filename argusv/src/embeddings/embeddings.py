@@ -2,10 +2,10 @@
 embeddings/embeddings.py — Multimodal Embedding Manager
 -------------------------------------------------------
 Tasks: VLM-07, VLM-08
-
 Supports both text and image embeddings:
 - Text-only: 384-dim (all-MiniLM-L6-v2) for RAG text search
 - Multimodal: 512-dim CLIP (ViT-B/32) for video + text search
+
 """
 
 import base64
@@ -88,7 +88,6 @@ class EmbeddingManager:
     async def embed_text(self, text: str) -> Optional[list[float]]:
         """
         Embed text using 384-dim model (for text RAG).
-
         Args:
             text: Text string to embed
 
@@ -124,7 +123,7 @@ class EmbeddingManager:
 
         if not self._use_clip:
             logger.warning("[Embeddings] CLIP not available, falling back to text model")
-            return np.array(await self.embed_text(text), dtype=np.float32)
+            return np.array(self.embed_text(text), dtype=np.float32)
 
         try:
             if self._clip_processor is not None:

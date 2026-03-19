@@ -24,18 +24,25 @@ MINIO_SECRET   = os.getenv("MINIO_SECRET_KEY", "minioadmin")
 
 
 # ── Cameras ─────────────────────────────────────────────────────────────────── #
-# Simple single-camera fallback
+# Multi-camera: CAMERAS='[{"id":"cam-01","name":"Front Door","rtsp_url":"rtsp://..."},...]'
+# Falls back to single-camera env vars if CAMERAS is not set.
 
 CAMERA_ID  = os.getenv("CAMERA_ID",  "cam-01")
-RTSP_URL   = os.getenv("RTSP_URL",   "rtsp://rtsp-simulator:8554/stream")
+RTSP_URL   = os.getenv("RTSP_URL",   "rtsp://localhost:8554/cam-01")
 
-# Multi-camera: CAMERAS='[{"id":"cam-01","rtsp_url":"rtsp://..."},...]'
+# RTSP host used in camera URLs — "mediamtx" inside Docker, "localhost" for local dev
+RTSP_HOST  = os.getenv("RTSP_HOST", "localhost")
 
 import json as _json
 _cam_raw = os.getenv("CAMERAS")
-CAMERAS: list[dict] = _json.loads(_cam_raw) if _cam_raw else [
-    {"id": CAMERA_ID, "rtsp_url": RTSP_URL}
-]
+if _cam_raw:
+    CAMERAS: list[dict] = _json.loads(_cam_raw)
+else:
+    # Default demo cameras — each gets an RTSP sim in docker-compose.dev.yml
+    CAMERAS: list[dict] = [
+        {"id": "cam-01", "name": "Front Door",  "rtsp_url": f"rtsp://{RTSP_HOST}:8554/cam-01"},
+        {"id": "cam-02", "name": "Parking Lot",  "rtsp_url": f"rtsp://{RTSP_HOST}:8554/cam-02"},
+    ]
 
 
 # ── Detection ───────────────────────────────────────────────────────────────── #
@@ -71,8 +78,9 @@ LOCAL_RECORDINGS_DIR   = os.getenv("LOCAL_RECORDINGS_DIR", "./recordings")
 GENAI_PROVIDER    = os.getenv("GENAI_PROVIDER",   "openai")
 
 # OpenAI
-OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY", "")
-VLM_MODEL         = os.getenv("VLM_MODEL",        "gpt-4o")
+OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY", "")
+VLM_MODEL           = os.getenv("VLM_MODEL",           "gpt-4o")
+EMBEDDING_MODEL     = os.getenv("EMBEDDING_MODEL",     "text-embedding-3-small")
 VLM_TRIAGE_MODEL  = os.getenv("VLM_TRIAGE_MODEL", "gpt-4o-mini")
 USE_TIERED_VLM    = os.getenv("USE_TIERED_VLM", "true").lower() == "true"
 VLM_MAX_WORKERS   = int(os.getenv("VLM_MAX_WORKERS", "3"))
