@@ -33,6 +33,7 @@ import redis
 
 import config as cfg
 from bus import bus
+from const import DEFAULT_LOITER_SEC, REDIS_ZONE_CHANNEL
 
 logger = logging.getLogger("edge-worker")
 
@@ -262,8 +263,16 @@ class DwellTracker:
         )
         self._thread.start()
 
-    def update(self, track_id: int, zone_id: str, zone_name: str, event: dict):
+    def update(
+        self,
+        track_id: int,
+        zone_id: str,
+        zone_name: str,
+        event: dict,
+        loiter_threshold_sec: Optional[float] = None,
+    ):
         now = time.time()
+        effective_loiter_sec = float(loiter_threshold_sec or self._loiter_sec)
         with self._lock:
             if track_id not in self._tracks:
                 self._tracks[track_id] = {
@@ -271,6 +280,7 @@ class DwellTracker:
                     "last_seen":          now,
                     "last_update_emit":   now,
                     "loitering_emitted":  False,
+                    "loiter_sec":         effective_loiter_sec,
                     "base_event":         event,
                 }
                 # Ensure zone_id and zone_name are updated in the event
@@ -288,8 +298,9 @@ class DwellTracker:
                 "zone_name": zone_name,
                 "bbox": event.get("bbox", t["base_event"].get("bbox"))
             })
+            t["loiter_sec"] = effective_loiter_sec
 
-            if dwell >= self._loiter_sec and not t["loitering_emitted"]:
+            if dwell >= t["loiter_sec"] and not t["loitering_emitted"]:
                 t["loitering_emitted"] = True
                 self._on_event({**t["base_event"], "event_type": "LOITERING", "dwell_sec": round(dwell, 1)})
             elif now - t["last_update_emit"] >= self._update_sec:
@@ -327,20 +338,34 @@ class ZoneMatcher:
     def __init__(self):
         self._zones: dict = {}
         self._polygon_cache: dict[str, Polygon] = {}
+        self._camera_zone_map: dict[str, str] = {}
+        self._stats = {
+            "matched": 0,
+            "outside_dropped": 0,
+            "fallback_full_frame": 0,
+            "hot_reload_events": 0,
+            "db_reload_count": 0,
+            "redis_reconnects": 0,
+        }
         self._lock = threading.Lock()
         self._load_from_db()
         self._start_redis_listener()
+        self._start_periodic_resync()
 
     def _load_from_db(self):
         try:
             engine = create_engine(cfg.POSTGRES_URL)
             with engine.connect() as conn:
                 rows = conn.execute(
-                    text("SELECT zone_id, name, polygon_coords, active FROM zones")
+                    text("SELECT zone_id, name, polygon_coords, dwell_threshold_sec, active FROM zones")
+                ).fetchall()
+                camera_rows = conn.execute(
+                    text("SELECT camera_id, zone_id FROM cameras WHERE zone_id IS NOT NULL")
                 ).fetchall()
             
             new_zones = {}
             new_poly_cache = {}
+            new_camera_map = {}
             for r in rows:
                 if not r.active:
                     continue
@@ -354,6 +379,7 @@ class ZoneMatcher:
                     "id": z_id,
                     "name": r.name,
                     "polygon_coords": coords,
+                    "dwell_threshold_sec": int(r.dwell_threshold_sec or DEFAULT_LOITER_SEC),
                 }
                 try:
                     if coords and len(coords) >= 3:
@@ -361,37 +387,68 @@ class ZoneMatcher:
                 except Exception as e:
                     logger.error(f"[ZoneMatcher] Error creating polygon for zone {z_id}: {e}")
 
+            for row in camera_rows:
+                new_camera_map[str(row.camera_id)] = str(row.zone_id)
+
             with self._lock:
                 self._zones = new_zones
                 self._polygon_cache = new_poly_cache
+                self._camera_zone_map = new_camera_map
+                self._stats["db_reload_count"] += 1
 
-            logger.info(f"[ZoneMatcher] Loaded {len(self._zones)} zones from DB")
+            logger.info(
+                f"[ZoneMatcher] Loaded {len(self._zones)} zones and "
+                f"{len(self._camera_zone_map)} camera zone bindings from DB"
+            )
         except Exception as e:
             logger.warning(f"[ZoneMatcher] DB load failed (no zones mode): {e}")
 
     def _start_redis_listener(self):
         def _listen():
-            try:
-                r  = redis.from_url(cfg.REDIS_URL, decode_responses=True)
-                ps = r.pubsub()
-                ps.subscribe("config-updates")
-                for msg in ps.listen():
-                    if msg["type"] == "message":
+            backoff_sec = 1.0
+            while True:
+                try:
+                    r  = redis.from_url(cfg.REDIS_URL, decode_responses=True)
+                    ps = r.pubsub()
+                    ps.subscribe(REDIS_ZONE_CHANNEL)
+                    backoff_sec = 1.0
+                    for msg in ps.listen():
+                        if msg["type"] != "message":
+                            continue
                         try:
                             data = json.loads(msg["data"])
                             if data.get("type") == "ZONE_UPDATE":
                                 self._apply_zone_update(data)
                         except Exception as e:
                             logger.error(f"[ZoneMatcher] Redis message parse error: {e}")
-            except Exception as e:
-                logger.warning(f"[ZoneMatcher] Redis listener failed: {e}")
+                except Exception as e:
+                    with self._lock:
+                        self._stats["redis_reconnects"] += 1
+                    logger.warning(
+                        f"[ZoneMatcher] Redis listener failed: {e} (retry in {backoff_sec:.0f}s)"
+                    )
+                    time.sleep(backoff_sec)
+                    backoff_sec = min(backoff_sec * 2, 30.0)
 
         threading.Thread(target=_listen, daemon=True, name="zone-listener").start()
+
+    def _start_periodic_resync(self):
+        interval = max(10, int(getattr(cfg, "ZONE_RESYNC_SEC", 60)))
+
+        def _resync():
+            while True:
+                time.sleep(interval)
+                self._load_from_db()
+
+        threading.Thread(target=_resync, daemon=True, name="zone-resync").start()
 
     def _apply_zone_update(self, data: dict):
         action = data.get("action")
         zone_id = data.get("zone_id")
         zone = data.get("zone")
+
+        with self._lock:
+            self._stats["hot_reload_events"] += 1
 
         if not zone_id:
             self._load_from_db()
@@ -409,6 +466,7 @@ class ZoneMatcher:
                         "id": zone_id,
                         "name": zone.get("name", ""),
                         "polygon_coords": coords,
+                        "dwell_threshold_sec": int(zone.get("dwell_threshold_sec") or DEFAULT_LOITER_SEC),
                     }
                     try:
                         if coords and len(coords) >= 3:
@@ -423,21 +481,48 @@ class ZoneMatcher:
                 # Fallback to full reload for unexpected formats
                 threading.Thread(target=self._load_from_db, daemon=True).start()
 
-    def match(self, cx_norm: float, cy_norm: float) -> Optional[dict]:
+    def match(self, cx_norm: float, cy_norm: float, camera_id: Optional[str] = None) -> Optional[dict]:
         pt = Point(cx_norm, cy_norm)
         with self._lock:
+            camera_zone_id = self._camera_zone_map.get(camera_id) if camera_id else None
+
+            # If camera is bound to a specific zone, enforce that scope.
+            if camera_zone_id and camera_zone_id in self._polygon_cache:
+                try:
+                    poly = self._polygon_cache[camera_zone_id]
+                    if poly.covers(pt):
+                        self._stats["matched"] += 1
+                        return self._zones.get(camera_zone_id)
+                    self._stats["outside_dropped"] += 1
+                    return None
+                except Exception:
+                    self._stats["outside_dropped"] += 1
+                    return None
+
             # Check cached polygons first (O(N) but shapely is fast)
             for z_id, poly in self._polygon_cache.items():
                 try:
-                    if poly.contains(pt):
+                    if poly.covers(pt):
+                        self._stats["matched"] += 1
                         return self._zones[z_id]
                 except Exception:
                     pass
             
             # Fallback if no zones defined
             if not self._zones:
-                return {"id": "default", "name": "Full Frame", "polygon_coords": []}
+                self._stats["fallback_full_frame"] += 1
+                return {
+                    "id": "default",
+                    "name": "Full Frame",
+                    "polygon_coords": [],
+                    "dwell_threshold_sec": DEFAULT_LOITER_SEC,
+                }
+            self._stats["outside_dropped"] += 1
         return None
+
+    def stats(self) -> dict:
+        with self._lock:
+            return dict(self._stats)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -560,7 +645,7 @@ class DetectLoop:
             cx_norm  = ((x1 + x2) / 2) / w
             cy_norm  = ((y1 + y2) / 2) / h
             
-            zone = self._zones.match(cx_norm, cy_norm)
+            zone = self._zones.match(cx_norm, cy_norm, camera_id=self.camera_id)
             if zone is None:
                 continue
 
@@ -583,7 +668,13 @@ class DetectLoop:
                 ev["trigger_frame_b64"] = base64.b64encode(buf).decode()
 
             if self._dwell and track_id is not None:
-                self._dwell.update(track_id, zone["id"], zone["name"], ev)
+                self._dwell.update(
+                    track_id,
+                    zone["id"],
+                    zone["name"],
+                    ev,
+                    loiter_threshold_sec=zone.get("dwell_threshold_sec", cfg.LOITER_SEC),
+                )
             else:
                 self._emit_event({**ev, "event_type": "DETECTED"})
 
@@ -657,4 +748,5 @@ def stop_cameras():
 
 
 def cameras_health() -> list[dict]:
-    return [w.health() for w in _camera_workers.values()]
+    zone_stats = _zone_matcher.stats() if _zone_matcher else {}
+    return [{**w.health(), "zone_matcher": zone_stats} for w in _camera_workers.values()]

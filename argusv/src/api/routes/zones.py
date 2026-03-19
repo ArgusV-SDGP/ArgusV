@@ -16,6 +16,7 @@ from shapely.geometry import Polygon
 from sqlalchemy.orm import Session
 
 import config as cfg
+from const import REDIS_ZONE_CHANNEL, REDIS_ZONE_CONFIG, REDIS_ZONES_VERSION
 from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
 from db.connection import get_db
 from db.models import Camera, Incident, Rule, Zone
@@ -130,11 +131,11 @@ def _publish_zone_update(zone_id: str, action: str, zone_data: Optional[dict[str
     try:
         r = redis.from_url(cfg.REDIS_URL, decode_responses=True)
         if action in {"created", "updated"} and zone_data is not None:
-            r.set(f"config:zone:{zone_id}", json.dumps(zone_data))
+            r.set(f"{REDIS_ZONE_CONFIG}{zone_id}", json.dumps(zone_data))
         if action == "deleted":
-            r.delete(f"config:zone:{zone_id}")
-        r.incr("config:zones:version")
-        r.publish("config-updates", json.dumps(payload))
+            r.delete(f"{REDIS_ZONE_CONFIG}{zone_id}")
+        r.incr(REDIS_ZONES_VERSION)
+        r.publish(REDIS_ZONE_CHANNEL, json.dumps(payload))
     except Exception as e:
         logger.warning(f"Failed to publish zone update for {zone_id}: {e}")
 
