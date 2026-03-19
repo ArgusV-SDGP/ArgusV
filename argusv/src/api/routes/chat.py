@@ -22,7 +22,6 @@ import config as cfg
 from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
 from db.connection import get_db
 from db.models import Detection
-from embeddings.embeddings import vector_db
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 logger = logging.getLogger("api.chat")
@@ -52,8 +51,14 @@ class ChatRequest(BaseModel):
 class SourceClip(BaseModel):
     event_id: str
     camera_id: str
+    zone_name: Optional[str]
     timestamp: str
     vlm_summary: Optional[str]
+    threat_level: Optional[str]
+    is_threat: Optional[bool]
+    thumbnail_url: Optional[str]
+    playlist_url: Optional[str]   # HLS playlist for ±30s window around this detection
+    incident_id: Optional[str]
     distance: float
 
 
@@ -77,9 +82,10 @@ async def chat(
         raise HTTPException(400, "message must not be empty")
 
     # ── 1. Embed the user query ──────────────────────────────────────────────
-    query_vector = await vector_db.embed_text(payload.message)
+    from genai.manager import embed_text
+    query_vector = await embed_text(payload.message)
     if not query_vector:
-        raise HTTPException(500, "Failed to generate embedding for query")
+        raise HTTPException(503, "Embedding service unavailable — check OPENAI_API_KEY")
 
     # ── 2. Retrieve relevant detection summaries ─────────────────────────────
     distance_col = Detection.vlm_embedding.cosine_distance(query_vector).label("distance")
@@ -99,11 +105,26 @@ async def chat(
     context_lines: list[str] = []
 
     for detection, dist in hits:
+        # Build a ±30s HLS playlist window so the clip is playable inline
+        playlist_url = None
+        if detection.detected_at:
+            from datetime import timedelta
+            from urllib.parse import quote
+            t_start = (detection.detected_at - timedelta(seconds=30)).isoformat()
+            t_end   = (detection.detected_at + timedelta(seconds=30)).isoformat()
+            playlist_url = f"/api/recordings/{detection.camera_id}/playlist?start={quote(t_start)}&end={quote(t_end)}"
+
         sources.append(SourceClip(
             event_id=detection.event_id,
             camera_id=detection.camera_id,
+            zone_name=detection.zone_name,
             timestamp=detection.detected_at.isoformat() if detection.detected_at else "",
             vlm_summary=detection.vlm_summary,
+            threat_level=detection.threat_level,
+            is_threat=detection.is_threat,
+            thumbnail_url=detection.thumbnail_url,
+            playlist_url=playlist_url,
+            incident_id=str(detection.incident_id) if detection.incident_id else None,
             distance=float(dist) if dist is not None else 1.0,
         ))
         ts = detection.detected_at.strftime("%Y-%m-%d %H:%M") if detection.detected_at else "unknown time"

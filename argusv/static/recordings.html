@@ -301,10 +301,15 @@
             ArgusV
         </a>
         <div class="controls">
+            <a href="/" style="text-decoration:none">
+                <button title="Back to Live Dashboard">📡 Live</button>
+            </a>
             <select id="cam-selector">
                 <option value="">Loading cameras...</option>
             </select>
             <input type="date" id="date-picker" />
+            <button id="btn-rewind" title="Rewind 10 seconds">⏪ 10s</button>
+            <button id="btn-forward" title="Forward 10 seconds">⏩ 10s</button>
             <button id="btn-events-only">
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -354,7 +359,9 @@
         let hls = null;
         let currentCam = null;
         let currentWindow = { start: null, end: null };
+        let playbackWindow = { start: null, end: null };
         let markers = [];
+        let playlistSegments = [];
         let eventsOnly = false;
         // Wall-clock start time of the HLS VOD â€” set once manifest is loaded
         // HLS.js exposes this via EXT-X-PROGRAM-DATE-TIME
@@ -370,6 +377,17 @@
         const blipsContainer = document.getElementById('blips-container');
         const statusSpan = document.getElementById('video-status');
         const tlIndicator = document.getElementById('tl-indicator');
+
+        function setPlaybackWindow(segments = [], fallbackStart = null, fallbackEnd = null) {
+            playlistSegments = Array.isArray(segments) ? segments : [];
+            if (playlistSegments.length > 0) {
+                playbackWindow.start = new Date(playlistSegments[0].start_time);
+                playbackWindow.end = new Date(playlistSegments[playlistSegments.length - 1].end_time);
+                return;
+            }
+            playbackWindow.start = fallbackStart ? new Date(fallbackStart) : null;
+            playbackWindow.end = fallbackEnd ? new Date(fallbackEnd) : null;
+        }
 
         // Initialize Date picker to today
         const today = new Date().toISOString().split('T')[0];
@@ -393,6 +411,8 @@
 
             const urlParams = new URLSearchParams(window.location.search);
             const incidentId = urlParams.get('incident_id');
+            const paramCam = urlParams.get('camera_id');
+            const paramTs = urlParams.get('ts');
 
             try {
                 const camsRes = await apiFetch(`${API_BASE}/cameras`);
@@ -401,16 +421,33 @@
                     camSelector.innerHTML = cameras.map(c =>
                         `<option value="${c.camera_id}">${c.name}</option>`
                     ).join('');
-                    if (cameras.length > 0) currentCam = cameras[0].camera_id;
+                    
+                    if (paramCam) {
+                        currentCam = paramCam;
+                        camSelector.value = paramCam;
+                    } else if (cameras.length > 0) {
+                        currentCam = cameras[0].camera_id;
+                    }
                 }
             } catch (e) {
                 console.error('Failed to load cameras', e);
+            }
+
+            if (paramTs) {
+                const dt = new Date(paramTs);
+                datePicker.value = dt.toISOString().split('T')[0];
             }
 
             if (incidentId) {
                 await loadIncidentReplay(incidentId);
             } else if (currentCam) {
                 await loadDailyTimeline();
+                if (paramTs) {
+                    // Give HLS a moment to load then seek
+                    video.addEventListener('loadedmetadata', () => {
+                        seekToWallClock(new Date(paramTs));
+                    }, { once: true });
+                }
             }
 
             // Canvas resize sync
@@ -447,6 +484,14 @@
             document.getElementById('btn-download').addEventListener('click', () => {
                 downloadCurrentSegment();
             });
+
+            document.getElementById('btn-rewind').addEventListener('click', () => {
+                video.currentTime = Math.max(0, video.currentTime - 10);
+            });
+
+            document.getElementById('btn-forward').addEventListener('click', () => {
+                video.currentTime = Math.min(video.duration, video.currentTime + 10);
+            });
         }
 
         // â”€â”€ Load daily view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -469,8 +514,9 @@
             if (eventsOnly) tlUrl += '&threats_only=true';
 
             try {
-                const [tlRes, playlistCheck] = await Promise.all([
+                const [tlRes, segmentsRes, playlistCheck] = await Promise.all([
                     apiFetch(tlUrl),
+                    apiFetch(`${API_BASE}/recordings/${currentCam}?start=${encodeURIComponent(startStr)}&end=${encodeURIComponent(endStr)}`),
                     apiFetch(`${API_BASE}/recordings/${currentCam}/playlist?start=${encodeURIComponent(startStr)}&end=${encodeURIComponent(endStr)}`),
                 ]);
 
@@ -481,12 +527,19 @@
                 }
                 renderBlips();
 
+                if (segmentsRes.ok) {
+                    setPlaybackWindow(await segmentsRes.json(), startStr, endStr);
+                } else {
+                    setPlaybackWindow([], startStr, endStr);
+                }
+
                 if (playlistCheck.ok) {
                     // Playlist exists â€” load it
                     const playUrl = `${API_BASE}/recordings/${currentCam}/playlist?start=${encodeURIComponent(startStr)}&end=${encodeURIComponent(endStr)}`;
-                    loadPlaylist(playUrl);
+                    loadPlaylist(playUrl, playlistSegments);
                 } else if (playlistCheck.status === 404) {
                     statusSpan.textContent = 'No recordings for this day';
+                    setPlaybackWindow([], startStr, endStr);
                     if (hls) { hls.destroy(); hls = null; }
                     video.src = '';
                 } else {
@@ -509,6 +562,7 @@
                 camSelector.value = currentCam;
                 currentWindow.start = new Date(data.window.start);
                 currentWindow.end   = new Date(data.window.end);
+                setPlaybackWindow(data.segments || [], data.window.start, data.window.end);
 
                 document.getElementById('tl-start-lbl').textContent = currentWindow.start.toLocaleTimeString();
                 document.getElementById('tl-end-lbl').textContent   = currentWindow.end.toLocaleTimeString();
@@ -520,7 +574,7 @@
                     renderBlips();
                 }
 
-                loadPlaylist(data.playlist_url);
+                loadPlaylist(data.playlist_url, playlistSegments);
 
                 statusSpan.textContent = `Incident: ${incidentId.slice(0, 8)}â€¦`;
                 document.querySelector('.live-dot').style.background = '#f59e0b';
@@ -532,9 +586,9 @@
         }
 
         // â”€â”€ HLS Playlist loader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        function loadPlaylist(url) {
+        function loadPlaylist(url, segments = []) {
             statusSpan.textContent = 'Loading segmentsâ€¦';
-            playlistStartWallClock = null;
+            playlistStartWallClock = segments.length > 0 ? new Date(segments[0].start_time) : null;
 
             if (Hls.isSupported()) {
                 if (hls) hls.destroy();
@@ -610,8 +664,11 @@
             }
 
             // Fallback: proportional estimate (less accurate but always works)
-            const spanMs = currentWindow.end.getTime() - currentWindow.start.getTime();
-            const offsetMs = targetDate.getTime() - currentWindow.start.getTime();
+            const fallbackStart = playbackWindow.start || currentWindow.start;
+            const fallbackEnd = playbackWindow.end || currentWindow.end;
+            if (!fallbackStart || !fallbackEnd) return;
+            const spanMs = fallbackEnd.getTime() - fallbackStart.getTime();
+            const offsetMs = targetDate.getTime() - fallbackStart.getTime();
             const pct = Math.min(1, Math.max(0, offsetMs / spanMs));
             video.currentTime = pct * video.duration;
         }
@@ -647,9 +704,12 @@
                 pct = Math.min(1, Math.max(0, (videoWallMs - currentWindow.start.getTime()) / spanMs));
                 tlIndicator.textContent = new Date(videoWallMs).toLocaleTimeString();
             } else {
+                const fallbackStart = playbackWindow.start || currentWindow.start;
+                const fallbackEnd = playbackWindow.end || currentWindow.end;
+                if (!fallbackStart || !fallbackEnd) return;
                 pct = video.currentTime / video.duration;
-                const spanMs = currentWindow.end.getTime() - currentWindow.start.getTime();
-                const approxMs = currentWindow.start.getTime() + spanMs * pct;
+                const spanMs = fallbackEnd.getTime() - fallbackStart.getTime();
+                const approxMs = fallbackStart.getTime() + spanMs * pct;
                 tlIndicator.textContent = new Date(approxMs).toLocaleTimeString();
             }
             playhead.style.left = `${pct * 100}%`;
@@ -669,9 +729,12 @@
             if (playlistStartWallClock) {
                 currentWallMs = playlistStartWallClock.getTime() + video.currentTime * 1000;
             } else {
+                const fallbackStart = playbackWindow.start || currentWindow.start;
+                const fallbackEnd = playbackWindow.end || currentWindow.end;
+                if (!fallbackStart || !fallbackEnd) return;
                 const pct = video.currentTime / video.duration;
-                const spanMs = currentWindow.end.getTime() - currentWindow.start.getTime();
-                currentWallMs = currentWindow.start.getTime() + spanMs * pct;
+                const spanMs = fallbackEnd.getTime() - fallbackStart.getTime();
+                currentWallMs = fallbackStart.getTime() + spanMs * pct;
             }
 
             const activeMarkers = markers.filter(m => {
@@ -681,10 +744,17 @@
 
             activeMarkers.forEach(mark => {
                 if (!mark.bbox || mark.bbox.x1 == null) return;
-                const x = mark.bbox.x1 * canvas.width;
-                const y = mark.bbox.y1 * canvas.height;
-                const w = (mark.bbox.x2 - mark.bbox.x1) * canvas.width;
-                const h = (mark.bbox.y2 - mark.bbox.y1) * canvas.height;
+                const sourceWidth = video.videoWidth || canvas.width || 1;
+                const sourceHeight = video.videoHeight || canvas.height || 1;
+                const normalized = mark.bbox.x2 <= 1 && mark.bbox.y2 <= 1;
+                const x1 = normalized ? mark.bbox.x1 * canvas.width : (mark.bbox.x1 / sourceWidth) * canvas.width;
+                const y1 = normalized ? mark.bbox.y1 * canvas.height : (mark.bbox.y1 / sourceHeight) * canvas.height;
+                const x2 = normalized ? mark.bbox.x2 * canvas.width : (mark.bbox.x2 / sourceWidth) * canvas.width;
+                const y2 = normalized ? mark.bbox.y2 * canvas.height : (mark.bbox.y2 / sourceHeight) * canvas.height;
+                const x = x1;
+                const y = y1;
+                const w = x2 - x1;
+                const h = y2 - y1;
 
                 const isThreat = mark.is_threat;
                 ctx.strokeStyle = isThreat ? '#ef4444' : '#3b82f6';
@@ -710,7 +780,7 @@
             if (playlistStartWallClock && video.duration) {
                 wallMs = playlistStartWallClock.getTime() + video.currentTime * 1000;
             } else {
-                wallMs = currentWindow.start.getTime();
+                wallMs = (playbackWindow.start || currentWindow.start).getTime();
             }
             const ts = new Date(wallMs).toISOString();
             const url = `${API_BASE}/recordings/${currentCam}/segment-at?ts=${encodeURIComponent(ts)}`;

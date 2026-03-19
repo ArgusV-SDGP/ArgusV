@@ -1,85 +1,107 @@
 """
-api/routes/rag.py — PostgreSQL pgvector RAG Endpoints
--------------------------------------------------------
-Handles natural language queries mathematically mapping against 
-Postgres embeddings, complete with SQL metadata filtering.
+api/routes/rag.py — Semantic Search via pgvector
+--------------------------------------------------
+GET /api/search?q=person+in+red+jacket
+
+Embeds the query text using text-embedding-3-small (same model used when
+detections are written), then runs cosine similarity against
+Detection.vlm_embedding in PostgreSQL.
+
+Optional filters: camera_id, threat_level, zone_id, start_time, end_time.
 """
 
-from typing import List, Optional
-from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import desc, asc
 from datetime import datetime
+from typing import List, Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
 from db.connection import get_db
-from db.models import Detection
-from embeddings.embeddings import vector_db
+from db.models import Detection, Incident
 
-router = APIRouter(tags=["rag"])
+router = APIRouter(tags=["search"])
 
-class RAGSearchResult(BaseModel):
-    event_id: str
+
+class SearchResult(BaseModel):
+    detection_id: str
+    event_id: Optional[str]
     camera_id: str
-    timestamp: str
+    zone_name: Optional[str]
+    object_class: Optional[str]
+    threat_level: Optional[str]
+    is_threat: Optional[bool]
     vlm_summary: Optional[str]
-    distance: float
+    detected_at: str
+    score: float          # 1 - cosine_distance (higher = more similar)
+    incident_id: Optional[str]
     thumbnail_url: Optional[str]
 
-@router.get("/api/search", response_model=List[RAGSearchResult], summary="Run Vector Search (pgvector + metadata)")
-async def search_semantic_events(
-    query: str = Query(..., description="The semantic or descriptive query (e.g. 'person carrying a huge box')"),
-    camera_id: str = Query(None, description="Optional: narrow search to a camera"),
-    threat_level: str = Query(None, description="Optional: filter by HIGh, MEDIUM, LOW"),
-    zone_id: str = Query(None, description="Optional: filter by zone_id"),
-    start_time: datetime = Query(None, description="Optional: limit search start date"),
-    end_time: datetime = Query(None, description="Optional: limit search end date"),
-    limit: int = Query(10, description="Max amount of video clips to return"),
+
+@router.get(
+    "/api/search",
+    response_model=List[SearchResult],
+    summary="Semantic search across VLM descriptions",
+)
+async def semantic_search(
+    q: str = Query(..., description="Natural language query, e.g. 'person in red jacket near entrance'"),
+    camera_id: Optional[str] = Query(None),
+    threat_level: Optional[str] = Query(None, description="HIGH | MEDIUM | LOW"),
+    zone_id: Optional[str] = Query(None),
+    start_time: Optional[datetime] = Query(None),
+    end_time: Optional[datetime] = Query(None),
+    limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
 ):
-    """
-    Accepts text, mathematically compares it to the GenAI video 
-    summaries using pgvector, applies traditional SQL filtering, 
-    and ranks the most relevant video clips.
-    """
-    
-    # 1. Transform the Query into a 384-dimension vector natively
-    query_vector = await vector_db.embed_text(query)
-    
+    from genai.manager import embed_text
+
+    # 1. Embed the query text
+    query_vector = await embed_text(q)
     if not query_vector:
-        raise HTTPException(500, "Failed to natively generate embedding for query.")
+        raise HTTPException(
+            status_code=503,
+            detail="Embedding service unavailable — check OPENAI_API_KEY",
+        )
 
-    # 2. Build the Hybrid Search Query against Postgres
-    # Calculate the mathematical distance and label it
+    # 2. Cosine distance search via pgvector
+    # cosine_distance returns 0 (identical) → 2 (opposite); convert to score 0→1
     distance_col = Detection.vlm_embedding.cosine_distance(query_vector).label("distance")
-    q = db.query(Detection, distance_col).filter(Detection.vlm_embedding != None)
 
-    # Filtering Metadata (Hard criteria)
+    base_q = (
+        db.query(Detection, distance_col)
+        .filter(Detection.vlm_embedding.isnot(None))
+    )
+
     if camera_id:
-        q = q.filter(Detection.camera_id == camera_id)
+        base_q = base_q.filter(Detection.camera_id == camera_id)
     if threat_level:
-        q = q.filter(Detection.threat_level == threat_level.upper())
+        base_q = base_q.filter(Detection.threat_level == threat_level.upper())
     if zone_id:
-        q = q.filter(Detection.zone_id == zone_id)
+        base_q = base_q.filter(Detection.zone_id == zone_id)
     if start_time:
-        q = q.filter(Detection.detected_at >= start_time)
+        base_q = base_q.filter(Detection.detected_at >= start_time)
     if end_time:
-        q = q.filter(Detection.detected_at <= end_time)
+        base_q = base_q.filter(Detection.detected_at <= end_time)
 
-    # Mathematical Vector Search: Order by the cosine distance and execute
-    q = q.order_by(distance_col).limit(limit)
-    hits = q.all()
+    hits = base_q.order_by(distance_col).limit(limit).all()
 
-    # 3. Serialize output
-    out = []
-    for hit, dist in hits:
-        out.append(RAGSearchResult(
-            event_id=hit.event_id,
-            camera_id=hit.camera_id,
-            timestamp=hit.detected_at.isoformat(),
-            vlm_summary=hit.vlm_summary,
-            distance=float(dist) if dist is not None else 0.0,
-            thumbnail_url=hit.thumbnail_url
-        ))
-        
-    return out
+    # 3. Serialize
+    return [
+        SearchResult(
+            detection_id  = str(det.detection_id),
+            event_id      = det.event_id,
+            camera_id     = det.camera_id,
+            zone_name     = det.zone_name,
+            object_class  = det.object_class,
+            threat_level  = det.threat_level,
+            is_threat     = det.is_threat,
+            vlm_summary   = det.vlm_summary,
+            detected_at   = det.detected_at.isoformat(),
+            score         = round(max(0.0, 1.0 - float(dist)), 4),
+            incident_id   = str(det.incident_id) if det.incident_id else None,
+            thumbnail_url = det.thumbnail_url,
+        )
+        for det, dist in hits
+    ]

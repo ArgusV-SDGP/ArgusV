@@ -56,6 +56,12 @@ def _serialize_segment(seg: Segment) -> dict[str, Any]:
     }
 
 
+def _format_hls_program_date_time(dt: datetime) -> str:
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        return dt.isoformat(timespec="milliseconds") + "Z"
+    return dt.isoformat(timespec="milliseconds")
+
+
 @router.get("/api/recordings/{camera_id}")
 def list_segments(
     camera_id: str,
@@ -108,7 +114,7 @@ def hls_playlist(
     for seg in segs:
         dur = float(seg.duration_sec or 0)
         # Embed the real-world timestamp as a comment so the frontend can use it for seeking
-        lines.append(f"#EXT-X-PROGRAM-DATE-TIME:{seg.start_time.isoformat()}Z")
+        lines.append(f"#EXT-X-PROGRAM-DATE-TIME:{_format_hls_program_date_time(seg.start_time)}")
         lines.append(f"#EXTINF:{dur:.3f},")
         lines.append(_local_path_to_web(seg.minio_path))
 
@@ -154,6 +160,27 @@ def segment_at_time(
         "offset_sec": round(offset_sec, 3),
     }
 
+
+
+@router.get("/api/recordings/{camera_id}/recent")
+def get_recent_segment(
+    camera_id: str,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
+):
+    """
+    Returns the most recently completed segment for a camera.
+    Used for the 'Rewind' feature on the live dashboard.
+    """
+    seg = (
+        db.query(Segment)
+        .filter(Segment.camera_id == camera_id)
+        .order_by(Segment.end_time.desc())
+        .first()
+    )
+    if not seg:
+        raise HTTPException(404, "No segments found for this camera")
+    return _serialize_segment(seg)
 
 
 @router.get("/api/recordings/{camera_id}/timeline")

@@ -30,8 +30,6 @@ import config as cfg
 
 logger = logging.getLogger("recording-worker")
 
-LOCAL_RECORDINGS_DIR = cfg.LOCAL_RECORDINGS_DIR
-
 
 class FFmpegRecorder:
     """
@@ -47,16 +45,29 @@ class FFmpegRecorder:
         self._stop     = threading.Event()
         self._tmp_dir  = Path(cfg.SEGMENT_TMP_DIR) / camera_id
         self._tmp_dir.mkdir(parents=True, exist_ok=True)
+        self._thread: Optional[threading.Thread] = None
 
     def start(self) -> threading.Thread:
+        if self._thread and self._thread.is_alive():
+            return self._thread
+        self._stop.clear()
         t = threading.Thread(target=self._run, daemon=True, name=f"ffmpeg-{self.camera_id}")
         t.start()
+        self._thread = t
         return t
 
     def stop(self):
         self._stop.set()
         if self._proc:
             self._proc.terminate()
+            try:
+                self._proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+        if self._thread:
+            self._thread.join(timeout=5)
+            self._thread = None
+        self._proc = None
 
     def _run(self):
         while not self._stop.is_set():
@@ -119,17 +130,25 @@ class SegmentWatcher:
         self._loop      = loop
         self._stop      = threading.Event()
         self._tmp_dir   = Path(cfg.SEGMENT_TMP_DIR) / camera_id
-        self._out_dir   = Path(LOCAL_RECORDINGS_DIR) / camera_id
+        self._out_dir   = Path(cfg.LOCAL_RECORDINGS_DIR) / camera_id
         self._out_dir.mkdir(parents=True, exist_ok=True)
         self._seen: dict[str, tuple[int, float]] = {}   # path → (last_size, stable_since)
+        self._thread: Optional[threading.Thread] = None
 
     def start(self) -> threading.Thread:
+        if self._thread and self._thread.is_alive():
+            return self._thread
+        self._stop.clear()
         t = threading.Thread(target=self._watch, daemon=True, name=f"watcher-{self.camera_id}")
         t.start()
+        self._thread = t
         return t
 
     def stop(self):
         self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=5)
+            self._thread = None
 
     def _watch(self):
         logger.info(f"[SegmentWatcher:{self.camera_id}] Watching {self._tmp_dir}")
@@ -190,12 +209,20 @@ class SegmentWatcher:
                 return True # Don't retry invalid files
 
             ts_str = m.group(1)
-            start_dt = datetime.strptime(ts_str, "%Y%m%d_%H%M%S")
+            # Parse local-time filename timestamp, convert to UTC for DB consistency
+            # (Detections are stored in UTC, so segment times must match)
+            from datetime import timezone as _tz
+            start_dt = datetime.strptime(ts_str, "%Y%m%d_%H%M%S").astimezone(_tz.utc).replace(tzinfo=None)
             end_dt   = start_dt + timedelta(seconds=cfg.SEGMENT_DURATION_SEC)
             size     = ts_file.stat().st_size
 
             # 2. Try to move (Windows check: WinError 32 happens here)
             dest = self._out_dir / ts_file.name
+            if dest.exists():
+                logger.warning(
+                    f"[SegmentWatcher:{self.camera_id}] Destination already exists, skipping move: {dest.name}"
+                )
+                return True
             shutil.move(str(ts_file), str(dest))
             
             # 3. DB write

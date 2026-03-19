@@ -1855,6 +1855,7 @@
 
     // ── Live Camera Grid (HLS.js) ────────────────────────────────────────────
     const hlsInstances = new Map();
+    const hlsRetryTimers = new Map();
     // MediaMTX HLS base URL — loaded from server config at boot
     let MEDIAMTX_HLS_BASE = 'http://localhost:8888'; // safe fallback
 
@@ -1910,6 +1911,7 @@
           <div class="cam-overlay-bottom">
             <div class="cam-fps" id="fps-${camId}">-- fps</div>
             <div class="cam-controls">
+              <button class="cam-ctrl-btn" onclick="rewindCamera('${camId}')" title="Rewind 10s">↩</button>
               <button class="cam-ctrl-btn" onclick="toggleFullscreen('${camId}')" title="Fullscreen">⛶</button>
             </div>
           </div>
@@ -1921,6 +1923,20 @@
         const camId = cam.camera_id || cam.name;
         attachHlsStream(camId);
       });
+    }
+
+    async function rewindCamera(camId) {
+      try {
+        const res = await window.ArgusAuth.authFetch(`/api/recordings/${camId}/recent`);
+        if (!res.ok) throw new Error('No recent recordings');
+        const seg = await res.json();
+        // Go to recordings page at end_time minus a few seconds
+        const endTs = new Date(seg.end_time);
+        const rewindTs = new Date(endTs.getTime() - 10000); // 10s before end
+        window.location.href = `/static/recordings.html?camera_id=${camId}&ts=${encodeURIComponent(rewindTs.toISOString())}`;
+      } catch (e) {
+        alert('Could not rewind: ' + e.message);
+      }
     }
 
     function attachHlsStream(camId) {
@@ -2019,6 +2035,141 @@
       }
     }
 
+    function clearHlsRetry(camId) {
+      if (!hlsRetryTimers.has(camId)) return;
+      clearTimeout(hlsRetryTimers.get(camId));
+      hlsRetryTimers.delete(camId);
+    }
+
+    function scheduleHlsRetry(camId, callback) {
+      if (hlsRetryTimers.has(camId)) return;
+      const timer = setTimeout(() => {
+        hlsRetryTimers.delete(camId);
+        callback();
+      }, 5000);
+      hlsRetryTimers.set(camId, timer);
+    }
+
+    attachHlsStream = function (camId) {
+      const videoEl = document.getElementById(`video-${camId}`);
+      const placeholder = document.getElementById(`ph-${camId}`);
+      const liveBadge = document.getElementById(`live-badge-${camId}`);
+      const statusBadge = document.getElementById(`status-badge-${camId}`);
+      if (!videoEl) return;
+
+      const hlsUrl = `${MEDIAMTX_HLS_BASE}/${camId}/index.m3u8`;
+
+      if (Hls.isSupported()) {
+        if (hlsInstances.has(camId)) {
+          hlsInstances.get(camId).destroy();
+        }
+        clearHlsRetry(camId);
+
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true,
+          liveSyncDurationCount: 2,
+          liveMaxLatencyDurationCount: 5,
+          liveDurationInfinity: true,
+          manifestLoadingTimeOut: 10000,
+          manifestLoadingMaxRetry: 6,
+          manifestLoadingRetryDelay: 2000,
+        });
+
+        hlsInstances.set(camId, hls);
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(videoEl);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          clearHlsRetry(camId);
+          videoEl.play().catch(() => { });
+          if (placeholder) placeholder.style.display = 'none';
+          if (liveBadge) liveBadge.style.opacity = '1';
+          if (statusBadge) {
+            statusBadge.textContent = 'Live';
+            statusBadge.className = 'cam-status-badge online';
+          }
+        });
+
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (!data.fatal) return;
+
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            if (statusBadge) {
+              statusBadge.textContent = 'Recovering';
+              statusBadge.className = 'cam-status-badge connecting';
+            }
+            hls.recoverMediaError();
+            return;
+          }
+
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            hls.startLoad();
+          }
+
+          if (placeholder) {
+            placeholder.innerHTML = `
+              <div class="cam-ph-icon">ðŸ“¡</div>
+              <div class="cam-ph-text">Stream unavailable</div>
+              <div class="cam-ph-text" style="font-size:11px;opacity:0.6">Retrying in 5sâ€¦</div>`;
+            placeholder.style.display = 'flex';
+          }
+          if (liveBadge) liveBadge.style.opacity = '0';
+          if (statusBadge) {
+            statusBadge.textContent = 'Offline';
+            statusBadge.className = 'cam-status-badge offline';
+          }
+
+          scheduleHlsRetry(camId, () => {
+            if (placeholder) {
+              placeholder.innerHTML = `
+                <div class="cam-spinner"></div>
+                <div class="cam-ph-text">Reconnectingâ€¦</div>`;
+              placeholder.style.display = 'flex';
+            }
+            if (statusBadge) {
+              statusBadge.textContent = 'Connecting';
+              statusBadge.className = 'cam-status-badge connecting';
+            }
+            hls.destroy();
+            if (hlsInstances.get(camId) === hls) {
+              hlsInstances.delete(camId);
+            }
+            attachHlsStream(camId);
+          });
+        });
+        return;
+      }
+
+      if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+        videoEl.src = hlsUrl;
+        videoEl.addEventListener('loadedmetadata', () => {
+          clearHlsRetry(camId);
+          videoEl.play().catch(() => { });
+          if (placeholder) placeholder.style.display = 'none';
+          if (liveBadge) liveBadge.style.opacity = '1';
+          if (statusBadge) {
+            statusBadge.textContent = 'Live';
+            statusBadge.className = 'cam-status-badge online';
+          }
+        }, { once: true });
+        videoEl.addEventListener('error', () => {
+          if (statusBadge) {
+            statusBadge.textContent = 'Offline';
+            statusBadge.className = 'cam-status-badge offline';
+          }
+          scheduleHlsRetry(camId, () => attachHlsStream(camId));
+        }, { once: true });
+        return;
+      }
+
+      if (placeholder) {
+        placeholder.innerHTML = `
+          <div class="cam-ph-icon">âš ï¸</div>
+          <div class="cam-ph-text">HLS not supported in this browser</div>`;
+      }
+    };
+
     function toggleFullscreen(camId) {
       const tile = document.getElementById(`tile-${camId}`);
       if (!tile) return;
@@ -2057,6 +2208,13 @@
       loadSystemStats();
       setInterval(loadSystemStats, 10000); // Refresh every 10 seconds
     }
+
+    window.addEventListener('beforeunload', () => {
+      hlsInstances.forEach(instance => instance.destroy());
+      hlsInstances.clear();
+      hlsRetryTimers.forEach(timer => clearTimeout(timer));
+      hlsRetryTimers.clear();
+    });
 
     boot();
   </script>

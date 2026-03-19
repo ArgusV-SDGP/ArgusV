@@ -23,10 +23,16 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Callable
+
 import cv2
 import numpy as np
+from sqlalchemy import create_engine, text
+from shapely.geometry import Point, Polygon
+from ultralytics import YOLO
+import redis
 
 import config as cfg
+from bus import bus
 
 logger = logging.getLogger("edge-worker")
 
@@ -65,7 +71,16 @@ class FrameBuffer:
         self._max_bad_frames  = 10   # tolerate up to 10 consecutive decode errors
         self._last_good_frame_ts: float = 0.0
 
+        # Optimization: Set RTSP options globally once if needed, or via env
+        # before opening the capture. 
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+            "rtsp_transport;tcp|buffer_size;10485760|threads;1"
+        )
+        os.environ["OPENCV_FFMPEG_THREADS"] = "1"
+
     def start(self):
+        if self._thread and self._thread.is_alive():
+            return
         self._stop.clear()
         self._thread = threading.Thread(
             target=self._capture_loop, daemon=True,
@@ -78,8 +93,10 @@ class FrameBuffer:
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=5)
+            self._thread = None
         if self._cap and self._cap.isOpened():
             self._cap.release()
+        self._cap = None
         self._connected = False
 
     def get_latest(self) -> Optional[CapturedFrame]:
@@ -105,13 +122,7 @@ class FrameBuffer:
         while not self._stop.is_set():
             if not self._connected:
                 try:
-                    # Force RTSP over TCP to avoid "bad cseq" RTP UDP packet
-                    # reordering errors that cause H264 decode failures.
-                    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
-                        "rtsp_transport;tcp|buffer_size;10485760|threads;1"
-                    )
-                    os.environ["OPENCV_FFMPEG_THREADS"] = "1"
-                    self._cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
+                    self._cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG if hasattr(cv2, 'CAP_FFMPEG') else cv2.CAP_ANY)
                     self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
                     if not self._cap.isOpened():
                         raise ConnectionError("Failed to open stream")
@@ -128,7 +139,6 @@ class FrameBuffer:
                     continue
 
             t0 = time.monotonic()
-<<<<<<< HEAD
             try:
                 ret, frame = self._cap.read()
             except cv2.error as e:
@@ -167,7 +177,8 @@ class FrameBuffer:
                     )
                     self._connected = False
                     self._bad_frame_count = 0
-                    self._cap.release()
+                    if self._cap:
+                        self._cap.release()
                 else:
                     logger.debug(
                         f"[FrameBuffer:{self.camera_id}] Bad frame "
@@ -175,27 +186,6 @@ class FrameBuffer:
                     )
                 continue
 
-=======
-            ret, frame = self._cap.read()
-            if not ret or frame is None:
-                self._bad_frame_count += 1
-                if self._bad_frame_count >= self._max_bad_frames:
-                    logger.warning(
-                        f"[FrameBuffer:{self.camera_id}] "
-                        f"{self._bad_frame_count} consecutive bad frames — reconnecting"
-                    )
-                    self._connected = False
-                    self._bad_frame_count = 0
-                    self._cap.release()
-                else:
-                    # transient decode error — skip frame, don't reconnect
-                    logger.debug(
-                        f"[FrameBuffer:{self.camera_id}] Bad frame "
-                        f"({self._bad_frame_count}/{self._max_bad_frames}), skipping"
-                    )
-                continue
-
->>>>>>> 5539cd3de2904064cfa4ea28bb33c2e024ecadd3
             # good frame — reset error counter
             self._bad_frame_count = 0
             self._last_good_frame_ts = time.time()
@@ -232,11 +222,13 @@ class MotionGate:
         self._frame_count   = 0
 
     def has_motion(self, frame: np.ndarray) -> bool:
+        # Resize for faster background subtraction if high res
+        # fg = self._bg_sub.apply(cv2.resize(frame, (640, 360)))
         fg = self._bg_sub.apply(frame)
         self._frame_count += 1
-        if self._frame_count < self._warmup_frames:
+        if self._frame_count <= self._warmup_frames:
             return True
-        return np.count_nonzero(fg) / fg.size > self._threshold
+        return (np.count_nonzero(fg) / fg.size) > self._threshold
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -264,10 +256,11 @@ class DwellTracker:
         self._lock  = threading.Lock()
         self._stop  = threading.Event()
 
-        threading.Thread(
+        self._thread = threading.Thread(
             target=self._eviction_loop, daemon=True,
             name=f"dwell-{camera_id}",
-        ).start()
+        )
+        self._thread.start()
 
     def update(self, track_id: int, zone_id: str, zone_name: str, event: dict):
         now = time.time()
@@ -280,27 +273,38 @@ class DwellTracker:
                     "loitering_emitted":  False,
                     "base_event":         event,
                 }
-                self._on_event({**event, "event_type": "START", "dwell_sec": 0})
+                # Ensure zone_id and zone_name are updated in the event
+                start_ev = {**event, "event_type": "START", "dwell_sec": 0, "zone_id": zone_id, "zone_name": zone_name}
+                self._on_event(start_ev)
                 return
 
             t = self._tracks[track_id]
             t["last_seen"] = now
             dwell = now - t["first_seen"]
 
+            # Update base event context for future emits
+            t["base_event"].update({
+                "zone_id": zone_id,
+                "zone_name": zone_name,
+                "bbox": event.get("bbox", t["base_event"].get("bbox"))
+            })
+
             if dwell >= self._loiter_sec and not t["loitering_emitted"]:
                 t["loitering_emitted"] = True
-                self._on_event({**event, "event_type": "LOITERING", "dwell_sec": round(dwell, 1)})
+                self._on_event({**t["base_event"], "event_type": "LOITERING", "dwell_sec": round(dwell, 1)})
             elif now - t["last_update_emit"] >= self._update_sec:
                 t["last_update_emit"] = now
-                self._on_event({**event, "event_type": "UPDATE",    "dwell_sec": round(dwell, 1)})
+                self._on_event({**t["base_event"], "event_type": "UPDATE",    "dwell_sec": round(dwell, 1)})
 
     def flush_all(self):
+        self._stop.set()
         with self._lock:
-            for t in self._tracks.values():
+            for tid, t in self._tracks.items():
                 dwell = time.time() - t["first_seen"]
                 self._on_event({**t["base_event"], "event_type": "END", "dwell_sec": round(dwell, 1)})
             self._tracks.clear()
-        self._stop.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout=1.0)
 
     def _eviction_loop(self):
         while not self._stop.is_set():
@@ -322,31 +326,45 @@ class DwellTracker:
 class ZoneMatcher:
     def __init__(self):
         self._zones: dict = {}
+        self._polygon_cache: dict[str, Polygon] = {}
         self._lock = threading.Lock()
         self._load_from_db()
         self._start_redis_listener()
 
     def _load_from_db(self):
         try:
-            from sqlalchemy import create_engine, text
             engine = create_engine(cfg.POSTGRES_URL)
             with engine.connect() as conn:
                 rows = conn.execute(
                     text("SELECT zone_id, name, polygon_coords, active FROM zones")
                 ).fetchall()
-            with self._lock:
-                self._zones = {
-                    str(r.zone_id): {
-                        "id": str(r.zone_id),
-                        "name": r.name,
-                        "polygon_coords": (
-                            json.loads(r.polygon_coords)
-                            if isinstance(r.polygon_coords, str)
-                            else r.polygon_coords
-                        ),
-                    }
-                    for r in rows if r.active
+            
+            new_zones = {}
+            new_poly_cache = {}
+            for r in rows:
+                if not r.active:
+                    continue
+                z_id = str(r.zone_id)
+                coords = (
+                    json.loads(r.polygon_coords)
+                    if isinstance(r.polygon_coords, str)
+                    else r.polygon_coords
+                )
+                new_zones[z_id] = {
+                    "id": z_id,
+                    "name": r.name,
+                    "polygon_coords": coords,
                 }
+                try:
+                    if coords and len(coords) >= 3:
+                        new_poly_cache[z_id] = Polygon(coords)
+                except Exception as e:
+                    logger.error(f"[ZoneMatcher] Error creating polygon for zone {z_id}: {e}")
+
+            with self._lock:
+                self._zones = new_zones
+                self._polygon_cache = new_poly_cache
+
             logger.info(f"[ZoneMatcher] Loaded {len(self._zones)} zones from DB")
         except Exception as e:
             logger.warning(f"[ZoneMatcher] DB load failed (no zones mode): {e}")
@@ -354,15 +372,17 @@ class ZoneMatcher:
     def _start_redis_listener(self):
         def _listen():
             try:
-                import redis as _redis
-                r  = _redis.from_url(cfg.REDIS_URL, decode_responses=True)
+                r  = redis.from_url(cfg.REDIS_URL, decode_responses=True)
                 ps = r.pubsub()
                 ps.subscribe("config-updates")
                 for msg in ps.listen():
                     if msg["type"] == "message":
-                        data = json.loads(msg["data"])
-                        if data.get("type") == "ZONE_UPDATE":
-                            self._apply_zone_update(data)
+                        try:
+                            data = json.loads(msg["data"])
+                            if data.get("type") == "ZONE_UPDATE":
+                                self._apply_zone_update(data)
+                        except Exception as e:
+                            logger.error(f"[ZoneMatcher] Redis message parse error: {e}")
             except Exception as e:
                 logger.warning(f"[ZoneMatcher] Redis listener failed: {e}")
 
@@ -377,39 +397,46 @@ class ZoneMatcher:
             self._load_from_db()
             return
 
-        if action == "deleted":
-            with self._lock:
+        with self._lock:
+            if action == "deleted":
                 self._zones.pop(zone_id, None)
-            logger.info(f"[ZoneMatcher] Hot-reloaded delete for zone={zone_id}")
-            return
-
-        if action in {"created", "updated"} and isinstance(zone, dict):
-            with self._lock:
+                self._polygon_cache.pop(zone_id, None)
+                logger.info(f"[ZoneMatcher] Hot-reloaded delete for zone={zone_id}")
+            elif action in {"created", "updated"} and isinstance(zone, dict):
                 if zone.get("active", True):
+                    coords = zone.get("polygon_coords", [])
                     self._zones[zone_id] = {
                         "id": zone_id,
                         "name": zone.get("name", ""),
-                        "polygon_coords": zone.get("polygon_coords", []),
+                        "polygon_coords": coords,
                     }
+                    try:
+                        if coords and len(coords) >= 3:
+                            self._polygon_cache[zone_id] = Polygon(coords)
+                    except Exception as e:
+                        logger.error(f"[ZoneMatcher] Error updating polygon for {zone_id}: {e}")
                 else:
                     self._zones.pop(zone_id, None)
-            logger.info(f"[ZoneMatcher] Hot-reloaded {action} for zone={zone_id}")
-            return
-
-        self._load_from_db()
+                    self._polygon_cache.pop(zone_id, None)
+                logger.info(f"[ZoneMatcher] Hot-reloaded {action} for zone={zone_id}")
+            else:
+                # Fallback to full reload for unexpected formats
+                threading.Thread(target=self._load_from_db, daemon=True).start()
 
     def match(self, cx_norm: float, cy_norm: float) -> Optional[dict]:
-        from shapely.geometry import Point, Polygon
         pt = Point(cx_norm, cy_norm)
         with self._lock:
-            for zone in self._zones.values():
+            # Check cached polygons first (O(N) but shapely is fast)
+            for z_id, poly in self._polygon_cache.items():
                 try:
-                    if Polygon(zone["polygon_coords"]).contains(pt):
-                        return zone
+                    if poly.contains(pt):
+                        return self._zones[z_id]
                 except Exception:
                     pass
-        if not self._zones:
-            return {"id": "default", "name": "Full Frame", "polygon_coords": []}
+            
+            # Fallback if no zones defined
+            if not self._zones:
+                return {"id": "default", "name": "Full Frame", "polygon_coords": []}
         return None
 
 
@@ -430,28 +457,46 @@ class DetectLoop:
         self._skip_count  = 0
         self._detect_count = 0
 
-        from ultralytics import YOLO
         self._model       = YOLO(cfg.YOLO_MODEL)
         self._motion_gate = MotionGate(threshold=cfg.MOTION_THRESHOLD) if cfg.USE_MOTION_GATE else None
         self._dwell       = DwellTracker(
             on_event=self._emit_event,
             camera_id=camera_id,
             loiter_threshold_sec=cfg.LOITER_SEC,
+            update_interval_sec=cfg.TRACK_UPDATE_SEC,
+            evict_after_sec=cfg.TRACK_EVICT_SEC,
         ) if cfg.USE_TRACKER else None
         self._frame_interval = 1.0 / cfg.DETECT_FPS
+        self._thread: Optional[threading.Thread] = None
 
     def start(self) -> threading.Thread:
+        if self._thread and self._thread.is_alive():
+            return self._thread
+        self._stop.clear()
+        if self._dwell is None and cfg.USE_TRACKER:
+            self._dwell = DwellTracker(
+                on_event=self._emit_event,
+                camera_id=self.camera_id,
+                loiter_threshold_sec=cfg.LOITER_SEC,
+                update_interval_sec=cfg.TRACK_UPDATE_SEC,
+                evict_after_sec=cfg.TRACK_EVICT_SEC,
+            )
         t = threading.Thread(
             target=self._loop_fn, daemon=True,
             name=f"detect-{self.camera_id}",
         )
         t.start()
+        self._thread = t
         return t
 
     def stop(self):
         self._stop.set()
         if self._dwell:
             self._dwell.flush_all()
+            self._dwell = None
+        if self._thread:
+            self._thread.join(timeout=5)
+            self._thread = None
 
     def health(self) -> dict:
         total = self._skip_count + self._detect_count
@@ -488,24 +533,33 @@ class DetectLoop:
                     )
                 else:
                     results = self._model(frame, verbose=False, conf=cfg.CONF_THRESHOLD)
-                self._process_results(frame, cf.timestamp, results)
+                
+                if results and len(results) > 0:
+                    self._process_results(frame, cf.timestamp, results[0])
             except Exception as e:
-                logger.error(f"[DetectLoop:{self.camera_id}] Inference error: {e}")
+                logger.error(f"[DetectLoop:{self.camera_id}] Inference error: {e}", exc_info=True)
 
             elapsed = time.monotonic() - t0
             self._stop.wait(max(0, self._frame_interval - elapsed))
 
-    def _process_results(self, frame: np.ndarray, timestamp: float, results):
+    def _process_results(self, frame: np.ndarray, timestamp: float, result):
         h, w = frame.shape[:2]
-        for box in (results[0].boxes or []):
+        if not result.boxes:
+            return
+
+        for box in result.boxes:
             cls_id = int(box.cls[0]) if box.cls is not None else -1
             if cls_id not in cfg.DETECT_CLASSES:
                 continue
+            
             conf     = float(box.conf[0])
-            x1,y1,x2,y2 = map(int, box.xyxy[0].tolist())
+            xyxy     = box.xyxy[0].tolist()
+            x1, y1, x2, y2 = map(int, xyxy)
+            
             track_id = int(box.id[0]) if box.id is not None else None
             cx_norm  = ((x1 + x2) / 2) / w
             cy_norm  = ((y1 + y2) / 2) / h
+            
             zone = self._zones.match(cx_norm, cy_norm)
             if zone is None:
                 continue
@@ -520,7 +574,10 @@ class DetectLoop:
                 "zone_id":      zone["id"],
                 "zone_name":    zone["name"],
                 "bbox":         {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
+                "frame_w":      w,
+                "frame_h":      h,
             }
+            
             if cfg.EMBED_FRAME:
                 _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, cfg.FRAME_JPEG_Q])
                 ev["trigger_frame_b64"] = base64.b64encode(buf).decode()
@@ -531,7 +588,8 @@ class DetectLoop:
                 self._emit_event({**ev, "event_type": "DETECTED"})
 
     def _emit_event(self, event: dict):
-        asyncio.run_coroutine_threadsafe(self._bus_q.put(event), self._loop)
+        if self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(self._bus_q.put(event), self._loop)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -552,7 +610,7 @@ class CameraWorker:
         if cfg.RECORDINGS_ENABLED:
             try:
                 from workers.recording_worker import CameraRecorder
-                self._recorder = CameraRecorder(camera_id, rtsp_url, bus_queue, loop)
+                self._recorder = CameraRecorder(camera_id, rtsp_url, bus.segments, loop)
                 logger.info(f"[CameraWorker:{camera_id}] ✅ Recorder initialized")
             except Exception as e:
                 logger.error(f"[CameraWorker:{camera_id}] ❌ Recorder initialization failed: {e}", exc_info=True)

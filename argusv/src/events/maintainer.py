@@ -102,7 +102,8 @@ class EventMaintainer:
                 det = res_det.scalars().first()
                 if det:
                     det.segment_id = segments[0].segment_id
-                    det.thumbnail_url = f"/api/incidents/{event_id}/thumbnail.jpg"
+                    if camera_id:
+                        det.thumbnail_url = f"/recordings/snapshots/{camera_id}/{camera_id}_{event_id}.jpg"
             await db.commit()
 
         # REC-13: trigger clip generation for this event

@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 import config as cfg
 from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
 from db.connection import get_db
-from db.models import Camera, Incident, Zone
+from db.models import Camera, Incident, Rule, Zone
 
 router = APIRouter(prefix="/api/zones", tags=["zones"])
 logger = logging.getLogger("api.zones")
@@ -32,6 +32,29 @@ class ZoneCreate(BaseModel):
     active: bool = True
 
 
+class RuleCreate(BaseModel):
+    trigger_type: str = "loitering"         # loitering | intrusion | restricted_area
+    severity: str = "MEDIUM"                 # HIGH | MEDIUM | LOW
+    object_classes: list[str] = ["person"]   # person | car | truck
+    action: str = "ALERT"                    # ALERT | MONITOR | IGNORE
+    min_confidence: float = Field(default=0.45, ge=0.0, le=1.0)
+    is_active: bool = True
+
+
+def _parse_rule(rule: Rule) -> dict[str, Any]:
+    cfg_j = rule.action_config or {}
+    return {
+        "rule_id":       str(rule.rule_id),
+        "zone_id":       str(rule.zone_id),
+        "trigger_type":  rule.trigger_type,
+        "severity":      rule.severity,
+        "object_classes": cfg_j.get("object_classes", ["person"]),
+        "action":        cfg_j.get("action", "ALERT"),
+        "min_confidence": cfg_j.get("min_confidence", 0.45),
+        "is_active":     rule.is_active,
+    }
+
+
 class ZonePatch(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1)
     polygon_coords: Optional[list[list[float]]] = None
@@ -40,7 +63,7 @@ class ZonePatch(BaseModel):
     active: Optional[bool] = None
 
 
-def _parse_zone(zone: Zone) -> dict[str, Any]:
+def _parse_zone(zone: Zone, rules: list[Rule] | None = None) -> dict[str, Any]:
     return {
         "zone_id": str(zone.zone_id),
         "name": zone.name,
@@ -50,6 +73,7 @@ def _parse_zone(zone: Zone) -> dict[str, Any]:
         "active": zone.active,
         "created_at": zone.created_at.isoformat() if zone.created_at else None,
         "updated_at": zone.updated_at.isoformat() if zone.updated_at else None,
+        "rules": [_parse_rule(r) for r in (rules or [])],
     }
 
 
@@ -128,7 +152,13 @@ def list_zones(
     if zone_type:
         query = query.filter(Zone.zone_type == zone_type)
     zones = query.order_by(Zone.created_at.desc()).all()
-    return [_parse_zone(z) for z in zones]
+    zone_ids = [z.zone_id for z in zones]
+    rules_by_zone: dict = {}
+    if zone_ids:
+        all_rules = db.query(Rule).filter(Rule.zone_id.in_(zone_ids)).all()
+        for r in all_rules:
+            rules_by_zone.setdefault(r.zone_id, []).append(r)
+    return [_parse_zone(z, rules_by_zone.get(z.zone_id, [])) for z in zones]
 
 
 @router.get("/{zone_id}")
@@ -235,20 +265,104 @@ def delete_zone(
     if not zone:
         raise HTTPException(404, "Zone not found")
 
-    camera_count = db.query(Camera).filter(Camera.zone_id == zid).count()
-    if camera_count:
-        raise HTTPException(
-            409,
-            f"Zone has {camera_count} camera(s) assigned. Reassign or unset their zone before deleting.",
-        )
+    # Unlink cameras (zone_id is nullable — just clear it)
+    db.query(Camera).filter(Camera.zone_id == zid).update(
+        {"zone_id": None}, synchronize_session=False
+    )
 
-    incident_count = db.query(Incident).filter(Incident.zone_id == zid).count()
-    if incident_count:
-        raise HTTPException(
-            409,
-            f"Zone has {incident_count} incident(s) referencing it. Resolve or reassign incidents before deleting.",
-        )
+    # Null out incident zone reference (keep historical records)
+    db.query(Incident).filter(Incident.zone_id == zid).update(
+        {"zone_id": None}, synchronize_session=False
+    )
+
+    # Delete rules first (no cascade configured on the FK)
+    db.query(Rule).filter(Rule.zone_id == zid).delete(synchronize_session=False)
 
     db.delete(zone)
     db.commit()
     _publish_zone_update(zone_id, "deleted")
+
+
+# ── Zone Rules ────────────────────────────────────────────────────────────────
+
+@router.get("/{zone_id}/rules")
+def list_zone_rules(
+    zone_id: str,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
+):
+    zid = _parse_zone_id(zone_id)
+    rules = db.query(Rule).filter(Rule.zone_id == zid).all()
+    return [_parse_rule(r) for r in rules]
+
+
+@router.post("/{zone_id}/rules", status_code=201)
+def create_zone_rule(
+    zone_id: str,
+    payload: RuleCreate,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR)),
+):
+    zid = _parse_zone_id(zone_id)
+    if not db.query(Zone).filter(Zone.zone_id == zid).first():
+        raise HTTPException(404, "Zone not found")
+
+    rule = Rule(
+        rule_id=uuid.uuid4(),
+        zone_id=zid,
+        trigger_type=payload.trigger_type,
+        severity=payload.severity,
+        action_config={
+            "object_classes":  payload.object_classes,
+            "action":          payload.action,
+            "min_confidence":  payload.min_confidence,
+        },
+        is_active=payload.is_active,
+    )
+    db.add(rule)
+    db.commit()
+    db.refresh(rule)
+    return _parse_rule(rule)
+
+
+@router.patch("/{zone_id}/rules/{rule_id}")
+def update_zone_rule(
+    zone_id: str,
+    rule_id: str,
+    payload: RuleCreate,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR)),
+):
+    zid = _parse_zone_id(zone_id)
+    rid = _parse_zone_id(rule_id)   # reuse UUID parser
+    rule = db.query(Rule).filter(Rule.rule_id == rid, Rule.zone_id == zid).first()
+    if not rule:
+        raise HTTPException(404, "Rule not found")
+
+    rule.trigger_type  = payload.trigger_type
+    rule.severity      = payload.severity
+    rule.action_config = {
+        "object_classes":  payload.object_classes,
+        "action":          payload.action,
+        "min_confidence":  payload.min_confidence,
+    }
+    rule.is_active = payload.is_active
+    db.commit()
+    db.refresh(rule)
+    return _parse_rule(rule)
+
+
+@router.delete("/{zone_id}/rules/{rule_id}", status_code=204)
+def delete_zone_rule(
+    zone_id: str,
+    rule_id: str,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR)),
+):
+    zid = _parse_zone_id(zone_id)
+    rid = _parse_zone_id(rule_id)
+    rule = db.query(Rule).filter(Rule.rule_id == rid, Rule.zone_id == zid).first()
+    if not rule:
+        raise HTTPException(404, "Rule not found")
+    db.delete(rule)
+    db.commit()
