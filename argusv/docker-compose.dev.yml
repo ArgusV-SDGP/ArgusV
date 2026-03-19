@@ -56,35 +56,22 @@ services:
       MTX_API: "yes"
       MTX_APIADDRESS: :9997
 
-  # ── RTSP Stream Simulator ───────────────────────────────────────────
-  # Pushes a video stream directly to MediaMTX from INSIDE Docker.
-  # → HLS output: http://localhost:8888/cam-01/index.m3u8
+  # ── RTSP Stream Simulators ──────────────────────────────────────────
+  # Push looping demo video to MediaMTX.
+  # HLS output: http://localhost:8888/cam-01/index.m3u8
+  #             http://localhost:8888/cam-02/index.m3u8
   #
-  # ✅ OPTION 1 (active): Generated test pattern — no file needed
-  # ✅ OPTION 2 (commented): Use your real .mp4 file
-  #
-  # To switch to your real file:
-  #   1. Comment out the OPTION 1 "command:" block
-  #   2. Uncomment the OPTION 2 "volumes:" + "command:" block
-  rtsp-sim:
+  # To use test patterns instead of video files, replace the command with:
+  #   -re -f lavfi -i "testsrc2=size=1280x720:rate=25"
+  #   -c:v libx264 -preset ultrafast -tune zerolatency -g 50 -pix_fmt yuv420p
+  #   -f rtsp -rtsp_transport tcp rtsp://mediamtx:8554/cam-01
+  rtsp-sim-cam01:
     image: jrottenberg/ffmpeg:5.1-alpine
     platform: linux/amd64
-    container_name: argus-rtsp-sim
+    container_name: argus-rtsp-sim-cam01
     depends_on:
       - mediamtx
-    restart: always
-
-    # ── OPTION 1: Test pattern (no file needed, always works) ──────────
-    # command: >
-    #   -re -f lavfi
-    #   -i "testsrc2=size=1280x720:rate=25"
-    #   -c:v libx264 -preset ultrafast -tune zerolatency
-    #   -g 50 -pix_fmt yuv420p
-    #   -f rtsp -rtsp_transport tcp
-    #   rtsp://mediamtx:8554/cam-01
-
-    # ── OPTION 2: Your real video file ─────────────────────────────────
-    # Fix: Copied your video into ./tmp to avoid OS/WSL path translation errors
+    restart: unless-stopped
     volumes:
       - ./tmp:/videos:ro
     command: >
@@ -101,7 +88,7 @@ services:
     container_name: argus-rtsp-sim-cam02
     depends_on:
       - mediamtx
-    restart: always
+    restart: unless-stopped
     volumes:
       - ./tmp:/videos:ro
     command: >
@@ -111,6 +98,24 @@ services:
       -an
       -f rtsp -rtsp_transport tcp
       rtsp://mediamtx:8554/cam-02
+
+
+  rtsp-sim-cam03:
+    image: jrottenberg/ffmpeg:5.1-alpine
+    platform: linux/amd64
+    container_name: argus-rtsp-sim-cam03
+    depends_on:
+      - mediamtx
+    restart: unless-stopped
+    volumes:
+      - ./tmp:/videos:ro
+    command: >
+      -re -stream_loop -1
+      -i "/videos/demo2.mp4"
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -an
+      -f rtsp -rtsp_transport tcp
+      rtsp://mediamtx:8554/cam-03
 
 volumes:
   postgres_dev_data:

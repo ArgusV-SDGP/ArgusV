@@ -12,16 +12,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps
-COPY argusv/pyproject.toml .
+COPY pyproject.toml .
 RUN pip install --no-cache-dir uv && uv pip install . --system
 
 # Copy monolith source
-COPY argusv/src/ ./src/
-COPY argusv/static/ ./static/
+COPY src/ ./src/
+COPY static/ ./static/
 
-# Shared edge-gateway modules (no ../ needed — context is services/)
-COPY edge-gateway/src/ ./vendor/edge-gateway/
-
-ENV PYTHONPATH="/app/src:/app/vendor/edge-gateway"
+ENV PYTHONPATH="/app/src"
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
