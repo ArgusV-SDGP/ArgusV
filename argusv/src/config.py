@@ -57,6 +57,7 @@ USE_TRACKER      = os.getenv("USE_TRACKER",      "true").lower() == "true"
 LOITER_SEC       = int(os.getenv("LOITER_THRESHOLD_SEC", "30"))
 TRACK_UPDATE_SEC = int(os.getenv("TRACK_UPDATE_SEC",     "10"))
 TRACK_EVICT_SEC  = int(os.getenv("TRACK_EVICT_SEC",      "5"))
+ZONE_RESYNC_SEC  = int(os.getenv("ZONE_RESYNC_SEC",      "60"))
 EMBED_FRAME      = os.getenv("EMBED_FRAME",   "true").lower() == "true"
 FRAME_JPEG_Q     = int(os.getenv("FRAME_JPEG_Q", "60"))
 
