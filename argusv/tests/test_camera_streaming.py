@@ -133,7 +133,8 @@ class TestFrameBuffer:
         # Cleanup
         fb.stop()
 
-    def test_stop_sets_event_and_joins_thread(self):
+    @patch('cv2.VideoCapture')
+    def test_stop_sets_event_and_joins_thread(self, mock_vc):
         """Test that stop() properly cleans up"""
         fb = FrameBuffer("rtsp://test", "cam-01")
         fb.start()

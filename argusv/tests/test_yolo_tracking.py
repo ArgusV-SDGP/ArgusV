@@ -8,6 +8,7 @@ import pytest
 import time
 import asyncio
 import numpy as np
+from shapely.geometry import Polygon
 import cv2
 from unittest.mock import Mock, patch, MagicMock
 from shapely.geometry import Point, Polygon
@@ -310,7 +311,7 @@ class TestDwellTracker:
 class TestZoneMatcher:
     """Test ZoneMatcher (polygon zone matching)"""
 
-    @patch('sqlalchemy.create_engine')
+    @patch('workers.edge_worker.create_engine')
     def test_initialization_loads_zones(self, mock_engine):
         """Test that ZoneMatcher loads zones from DB"""
         # Mock DB connection
@@ -339,11 +340,8 @@ class TestZoneMatcher:
         matcher = ZoneMatcher()
 
         # Manually add a test zone (square)
-        matcher._zones["zone-01"] = {
-            "id": "zone-01",
-            "name": "Test Zone",
-            "polygon_coords": [[0.2, 0.2], [0.8, 0.2], [0.8, 0.8], [0.2, 0.8]]
-        }
+        matcher._zones["zone-01"] = {"id": "zone-01", "name": "Test Zone", "polygon_coords": [[0.2, 0.2], [0.8, 0.2], [0.8, 0.8], [0.2, 0.8]]}
+        matcher._polygon_cache["zone-01"] = Polygon([[0.2, 0.2], [0.8, 0.2], [0.8, 0.8], [0.2, 0.8]])
 
         # Test point inside zone
         result = matcher.match(0.5, 0.5)
@@ -357,11 +355,8 @@ class TestZoneMatcher:
         matcher = ZoneMatcher()
 
         # Add test zone
-        matcher._zones["zone-01"] = {
-            "id": "zone-01",
-            "name": "Test Zone",
-            "polygon_coords": [[0.2, 0.2], [0.4, 0.2], [0.4, 0.4], [0.2, 0.4]]
-        }
+        matcher._zones["zone-01"] = {"id": "zone-01", "name": "Test Zone", "polygon_coords": [[0.2, 0.2], [0.4, 0.2], [0.4, 0.4], [0.2, 0.4]]}
+        matcher._polygon_cache["zone-01"] = Polygon([[0.2, 0.2], [0.4, 0.2], [0.4, 0.4], [0.2, 0.4]])
 
         # Test point outside zone
         result = matcher.match(0.9, 0.9)
@@ -385,16 +380,10 @@ class TestZoneMatcher:
         matcher = ZoneMatcher()
 
         # Add two overlapping zones
-        matcher._zones["zone-01"] = {
-            "id": "zone-01",
-            "name": "Zone 1",
-            "polygon_coords": [[0.1, 0.1], [0.6, 0.1], [0.6, 0.6], [0.1, 0.6]]
-        }
-        matcher._zones["zone-02"] = {
-            "id": "zone-02",
-            "name": "Zone 2",
-            "polygon_coords": [[0.4, 0.4], [0.9, 0.4], [0.9, 0.9], [0.4, 0.9]]
-        }
+        matcher._zones["zone-01"] = {"id": "zone-01", "name": "Zone 1", "polygon_coords": [[0.1, 0.1], [0.6, 0.1], [0.6, 0.6], [0.1, 0.6]]}
+        matcher._polygon_cache["zone-01"] = Polygon([[0.1, 0.1], [0.6, 0.1], [0.6, 0.6], [0.1, 0.6]])
+        matcher._zones["zone-02"] = {"id": "zone-02", "name": "Zone 2", "polygon_coords": [[0.4, 0.4], [0.9, 0.4], [0.9, 0.9], [0.4, 0.9]]}
+        matcher._polygon_cache["zone-02"] = Polygon([[0.4, 0.4], [0.9, 0.4], [0.9, 0.9], [0.4, 0.9]])
 
         # Point in overlap area
         result = matcher.match(0.5, 0.5)

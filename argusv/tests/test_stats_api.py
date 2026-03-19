@@ -15,18 +15,19 @@ sys.path.insert(0, str(src_path))
 
 from api.server import app
 from db.models import Camera, Detection, Incident, Segment
-
-
-@pytest.fixture
-def client():
-    """Test client for FastAPI app."""
-    return TestClient(app)
-
+from db.connection import get_db
 
 @pytest.fixture
 def mock_db_session():
     """Mock database session with sample data."""
     session = MagicMock()
+...
+@pytest.fixture
+def client(mock_db_session):
+    """Test client for FastAPI app."""
+    app.dependency_overrides[get_db] = lambda: mock_db_session
+    yield TestClient(app)
+    app.dependency_overrides.clear()
 
     # Mock cameras
     camera1 = Camera(
@@ -34,14 +35,14 @@ def mock_db_session():
         name="Front Gate",
         status="online",
         fps=25,
-        last_frame_ts=datetime.now(timezone.utc),
+        last_seen=datetime.now(timezone.utc),
     )
     camera2 = Camera(
         camera_id="cam-02",
         name="Parking Lot",
         status="offline",
         fps=0,
-        last_frame_ts=datetime.now(timezone.utc) - timedelta(hours=2),
+        last_seen=datetime.now(timezone.utc) - timedelta(hours=2),
     )
 
     # Configure query mock for cameras

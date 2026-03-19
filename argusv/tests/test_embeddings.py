@@ -28,7 +28,7 @@ class TestEmbeddingManager:
         assert manager._device == "cpu"
 
 
-    @patch('embeddings.embeddings.SentenceTransformer')
+    @patch('sentence_transformers.SentenceTransformer')
     @pytest.mark.asyncio
     async def test_embed_text(self, mock_sentence_transformer):
         """Test text embedding generation."""
@@ -45,7 +45,7 @@ class TestEmbeddingManager:
         assert isinstance(embedding, list)
 
 
-    @patch('embeddings.embeddings.SentenceTransformer')
+    @patch('sentence_transformers.SentenceTransformer')
     def test_encode_image(self, mock_sentence_transformer):
         """Test image embedding generation."""
         # Setup mock
@@ -66,7 +66,7 @@ class TestEmbeddingManager:
         assert isinstance(embedding, np.ndarray)
 
 
-    @patch('embeddings.embeddings.SentenceTransformer')
+    @patch('sentence_transformers.SentenceTransformer')
     def test_encode_multimodal(self, mock_sentence_transformer):
         """Test multimodal embedding (image + text)."""
         # Setup mock
@@ -94,7 +94,7 @@ class TestEmbeddingManager:
         assert abs(norm - 1.0) < 0.01  # Should be unit vector
 
 
-    @patch('embeddings.embeddings.SentenceTransformer')
+    @patch('sentence_transformers.SentenceTransformer')
     def test_similarity(self, mock_sentence_transformer):
         """Test cosine similarity computation."""
         manager = EmbeddingManager(use_clip=False)
@@ -122,7 +122,7 @@ class TestEmbeddingManager:
         assert embedding is None
 
 
-    @patch('embeddings.embeddings.SentenceTransformer')
+    @patch('sentence_transformers.SentenceTransformer')
     def test_encode_multimodal_image_only(self, mock_sentence_transformer):
         """Test multimodal encoding with only image."""
         mock_model = MagicMock()
@@ -140,7 +140,7 @@ class TestEmbeddingManager:
         assert len(embedding) == 512
 
 
-    @patch('embeddings.embeddings.SentenceTransformer')
+    @patch('sentence_transformers.SentenceTransformer')
     def test_encode_multimodal_text_only(self, mock_sentence_transformer):
         """Test multimodal encoding with only text."""
         mock_model = MagicMock()
@@ -164,7 +164,7 @@ class TestMilvusClient:
         """Test MilvusClient initialization."""
         from embeddings.milvus_client import MilvusClient as ArgusVMilvusClient
 
-        mock_client = MagicMock()
+        mock_client = AsyncMock()
         mock_milvus.return_value = mock_client
 
         client = ArgusVMilvusClient(host="localhost", port=19530)
@@ -179,7 +179,7 @@ class TestMilvusClient:
         """Test inserting frame embedding into Milvus."""
         from embeddings.milvus_client import MilvusClient as ArgusVMilvusClient
 
-        mock_client = MagicMock()
+        mock_client = AsyncMock()
         mock_milvus.return_value = mock_client
 
         client = ArgusVMilvusClient()
@@ -206,7 +206,7 @@ class TestMilvusClient:
         """Test semantic search for similar frames."""
         from embeddings.milvus_client import MilvusClient as ArgusVMilvusClient
 
-        mock_client = MagicMock()
+        mock_client = AsyncMock()
         mock_client.search.return_value = [
             [
                 {"id": 1, "distance": 0.15, "entity": {"frame_id": "frame-001"}},
@@ -234,7 +234,7 @@ class TestMilvusClient:
         """Test semantic search with metadata filters."""
         from embeddings.milvus_client import MilvusClient as ArgusVMilvusClient
 
-        mock_client = MagicMock()
+        mock_client = AsyncMock()
         mock_client.search.return_value = [[]]
         mock_milvus.return_value = mock_client
 
