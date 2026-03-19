@@ -22,9 +22,19 @@ logger = logging.getLogger("genai.manager")
 
 # ── Shared helpers ────────────────────────────────────────────────────────────
 
+_THREAT_RUBRIC = (
+    "Threat rubric (natural language definitions): "
+    "HIGH = immediate danger or active crime (weapon visible, violence, forced entry, fire/smoke, person collapsed, "
+    "clear emergency). "
+    "MEDIUM = suspicious behavior that may require intervention (loitering in restricted zone, repeated boundary testing, "
+    "tailgating, attempted intrusion, unusual after-hours presence). "
+    "LOW = routine or benign activity with no immediate risk (normal walking, authorized presence, ordinary traffic)."
+)
+
 _FULL_PROMPT_TMPL = (
     "You are a security analyst reviewing camera footage. "
     "A {object_class} was detected in '{zone_name}' (dwell: {dwell_sec}s, type: {event_type}). "
+    f"{_THREAT_RUBRIC} "
     "Analyse this scene. Respond with ONLY valid JSON: "
     '{"threat_level":"HIGH|MEDIUM|LOW","is_threat":true|false,'
     '"summary":"<1 sentence>","recommended_action":"ALERT|MONITOR|IGNORE"}'
@@ -33,6 +43,7 @@ _FULL_PROMPT_TMPL = (
 _TRIAGE_PROMPT_TMPL = (
     "Security camera alert: {object_class} detected in '{zone_name}'. "
     "Event type: {event_type}. Dwell time: {dwell_sec}s. "
+    f"{_THREAT_RUBRIC} "
     "Is this worth escalating? Reply ONE word: YES or NO."
 )
 
@@ -47,15 +58,53 @@ def _build_prompts(event: dict) -> tuple[str, str]:
     return _TRIAGE_PROMPT_TMPL.format(**ctx), _FULL_PROMPT_TMPL.format(**ctx)
 
 
+def _normalize_threat_payload(payload: dict) -> dict:
+    """Coerce provider output into a consistent threat schema."""
+    allowed_levels = {"HIGH", "MEDIUM", "LOW"}
+    raw_level = str(payload.get("threat_level", "")).strip().upper()
+    summary = str(payload.get("summary", "")).strip()
+
+    if raw_level not in allowed_levels:
+        s = summary.lower()
+        if any(k in s for k in ("weapon", "gun", "knife", "fire", "smoke", "fight", "bleeding", "collapsed", "forced entry", "break in", "break-in")):
+            raw_level = "HIGH"
+        elif any(k in s for k in ("loiter", "suspicious", "tailgating", "intrusion", "restricted", "unauthorized", "after-hours", "after hours", "boundary")):
+            raw_level = "MEDIUM"
+        else:
+            raw_level = "LOW"
+
+    is_threat_raw = payload.get("is_threat")
+    if isinstance(is_threat_raw, bool):
+        is_threat = is_threat_raw
+    elif isinstance(is_threat_raw, str):
+        is_threat = is_threat_raw.strip().lower() in {"1", "true", "yes", "y"}
+    else:
+        is_threat = raw_level in {"HIGH", "MEDIUM"}
+
+    action = str(payload.get("recommended_action", "")).strip().upper()
+    if action not in {"ALERT", "MONITOR", "IGNORE"}:
+        action = "ALERT" if raw_level == "HIGH" else ("MONITOR" if raw_level == "MEDIUM" else "IGNORE")
+
+    if not summary:
+        summary = "Scene analyzed with limited details"
+
+    return {
+        "threat_level": raw_level,
+        "is_threat": is_threat,
+        "summary": summary[:200],
+        "recommended_action": action,
+    }
+
+
 def _parse_vlm_json(text: str) -> dict:
     """Extract and parse the JSON object from raw LLM output."""
     m = re.search(r"\{.*\}", text, re.DOTALL)
     if m:
         try:
-            return json.loads(m.group())
+            return _normalize_threat_payload(json.loads(m.group()))
         except json.JSONDecodeError:
             pass
-    return {"threat_level": "MEDIUM", "is_threat": True, "summary": text[:200].strip()}
+    return _normalize_threat_payload({"threat_level": "MEDIUM", "is_threat": True, "summary": text[:200].strip()})
 
 
 # ── Provider protocol ─────────────────────────────────────────────────────────

@@ -226,13 +226,14 @@ class SegmentWatcher:
             shutil.move(str(ts_file), str(dest))
             
             # 3. DB write
-            self._write_db(str(dest), start_dt, end_dt, size)
-            
+            seg = self._write_db(str(dest), start_dt, end_dt, size)
+
             # 4. Bus event
             seg_event = {
                 "event_type": "SEGMENT_COMPLETE",
                 "camera_id":  self.camera_id,
                 "path":       str(dest),
+                "segment_id": str(seg.segment_id) if seg else None,
                 "start_time": start_dt.isoformat(),
                 "end_time":   end_dt.isoformat(),
                 "size_bytes": size,
@@ -267,10 +268,13 @@ class SegmentWatcher:
             )
             db.add(seg)
             db.commit()
+            db.refresh(seg)
             logger.debug(f"[SegmentWatcher] Inserted Segment DB row for — {local_path}")
+            return seg
         except Exception as e:
             logger.error(f"[SegmentWatcher] Failed to write DB segment: {e}")
             db.rollback()
+            return None
         finally:
             db.close()
 

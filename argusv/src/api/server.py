@@ -42,6 +42,7 @@ from workers.pipeline_worker import (
     notification_worker,
 )
 from workers.rag_worker import rag_semantic_worker
+from workers.segment_vlm_worker import segment_vlm_worker
 from workers.snapshot_worker import snapshot_worker, clip_generation_worker
 from workers.cleanup_worker import cleanup_worker
 from workers.watchdog_worker import watchdog_worker
@@ -79,6 +80,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(decision_engine_worker(),   name="decision-engine"),
         asyncio.create_task(notification_worker(),      name="notification"),
         asyncio.create_task(rag_semantic_worker(),      name="rag-semantic"),
+        asyncio.create_task(segment_vlm_worker(),       name="segment-vlm"),
         asyncio.create_task(snapshot_worker(),          name="snapshot-worker"),
         asyncio.create_task(clip_generation_worker(),   name="clip-generator"),
         asyncio.create_task(cleanup_worker(),           name="cleanup-worker"),

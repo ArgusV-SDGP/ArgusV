@@ -53,6 +53,8 @@ def _serialize_segment(seg: Segment) -> dict[str, Any]:
         "has_detections": seg.has_detections,
         "detection_count": seg.detection_count,
         "locked": seg.locked,
+        "description": seg.description,
+        "thumbnail_url": seg.thumbnail_url,
     }
 
 
