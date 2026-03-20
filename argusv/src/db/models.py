@@ -64,8 +64,11 @@ class Segment(Base):
     has_motion      = Column(Boolean, default=False)
     has_detections  = Column(Boolean, default=False)
     detection_count = Column(Integer, default=0)
-    retain_until    = Column(DateTime, nullable=True)
-    locked          = Column(Boolean, default=False)
+    retain_until         = Column(DateTime, nullable=True)
+    locked               = Column(Boolean, default=False)
+    description          = Column(Text,    nullable=True)        # GPT-4o scene description for this chunk
+    description_embedding= Column(Vector(1536), nullable=True)   # text-embedding-3-small for RAG search
+    thumbnail_url        = Column(String,  nullable=True)        # mid-segment frame for UI preview
 
     camera_rel = relationship("Camera",    back_populates="segments")
     detections = relationship("Detection", back_populates="segment", lazy="dynamic")
