@@ -13,6 +13,8 @@ import sqlalchemy as sa
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 from alembic.autogenerate import renderers
+from pathlib import Path
+from dotenv import load_dotenv
 
 # ── Import models so Alembic sees all table metadata ──────────────────────────
 import sys
@@ -23,6 +25,14 @@ from pgvector.sqlalchemy import Vector  # noqa: E402
 
 # ── Alembic Config object ─────────────────────────────────────────────────────
 config = context.config
+
+# Load local .env so Alembic uses the same DB URL as the app.
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(_env_path, override=False)
+
+# Load local .env so Alembic uses the same DB URL as the app.
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(_env_path, override=False)
 
 # Override URL from environment (docker / CI / prod) — keeps secrets out of INI.
 postgres_url = os.getenv("POSTGRES_URL")

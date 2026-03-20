@@ -11,6 +11,7 @@ import redis
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 
 import config as cfg
 from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
@@ -110,6 +111,7 @@ def _serialize_zone_for_camera(zone: Zone, frame_w: Optional[int], frame_h: Opti
     bbox_px = _bbox_to_px(bbox_norm, frame_w, frame_h)
     return {
         "zone_id": str(zone.zone_id),
+        "camera_id": zone.camera_id,
         "name": zone.name,
         "polygon_coords": zone.polygon_coords,
         "zone_type": zone.zone_type,
@@ -163,7 +165,7 @@ def get_camera(
 def list_camera_zones(
     camera_id: str,
     view: Literal["with_zones", "without_zones"] = Query("with_zones"),
-    selection: Literal["assigned", "all"] = Query("all"),
+    selection: Literal["assigned", "all"] = Query("assigned"),
     zone_ids: Optional[str] = Query(None, description="Comma-separated zone UUIDs to include"),
     active_only: bool = Query(True),
     db: Session = Depends(get_db),
@@ -178,10 +180,21 @@ def list_camera_zones(
     query = db.query(Zone)
     if active_only:
         query = query.filter(Zone.active == True)
-    if selection == "assigned" and cam.zone_id:
-        query = query.filter(Zone.zone_id == cam.zone_id)
+    if selection == "assigned":
+        query = query.filter(Zone.camera_id == camera_id)
 
-    candidate_zones = query.order_by(Zone.created_at.desc()).all()
+    try:
+        candidate_zones = query.order_by(Zone.created_at.desc()).all()
+    except SQLAlchemyError:
+        # Backward compatibility before zones.camera_id migration is applied.
+        if selection == "assigned" and cam.zone_id:
+            fallback_query = db.query(Zone)
+            if active_only:
+                fallback_query = fallback_query.filter(Zone.active == True)
+            fallback_query = fallback_query.filter(Zone.zone_id == cam.zone_id)
+            candidate_zones = fallback_query.order_by(Zone.created_at.desc()).all()
+        else:
+            candidate_zones = []
     available_zone_ids = [str(z.zone_id) for z in candidate_zones]
 
     selected_zone_ids: list[str] = []
@@ -206,6 +219,7 @@ def list_camera_zones(
         "camera_id": cam.camera_id,
         "camera_name": cam.name,
         "camera_zone_id": str(cam.zone_id) if cam.zone_id else None,
+        "camera_zone_ids": available_zone_ids,
         "frame": {"width": frame_w, "height": frame_h},
         "view": view,
         "selection": selection,
