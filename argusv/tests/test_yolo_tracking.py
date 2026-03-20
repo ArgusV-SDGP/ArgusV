@@ -351,6 +351,7 @@ class TestZoneMatcher:
         mock_conn.execute.return_value.fetchall.return_value = [
             MagicMock(
                 zone_id="zone-01",
+                camera_id=None,
                 name="Entrance",
                 polygon_coords=[[0.2, 0.2], [0.4, 0.2], [0.4, 0.4], [0.2, 0.4]],
                 dwell_threshold_sec=30,
@@ -457,7 +458,7 @@ class TestZoneMatcher:
         matcher._zones["zone-02"] = {"id": "zone-02", "name": "Zone 2", "polygon_coords": [[0.6, 0.6], [0.9, 0.6], [0.9, 0.9], [0.6, 0.9]]}
         matcher._polygon_cache["zone-01"] = Polygon([[0.1, 0.1], [0.4, 0.1], [0.4, 0.4], [0.1, 0.4]])
         matcher._polygon_cache["zone-02"] = Polygon([[0.6, 0.6], [0.9, 0.6], [0.9, 0.9], [0.6, 0.9]])
-        matcher._camera_zone_map["cam-01"] = "zone-01"
+        matcher._camera_zone_map["cam-01"] = {"zone-01"}
 
         # Point is inside zone-02, but cam-01 is bound to zone-01, so should be dropped.
         assert matcher.match(0.7, 0.7, camera_id="cam-01") is None

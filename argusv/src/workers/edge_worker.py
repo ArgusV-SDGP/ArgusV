@@ -338,7 +338,7 @@ class ZoneMatcher:
     def __init__(self):
         self._zones: dict = {}
         self._polygon_cache: dict[str, Polygon] = {}
-        self._camera_zone_map: dict[str, str] = {}
+        self._camera_zone_map: dict[str, set[str]] = {}
         self._stats = {
             "matched": 0,
             "outside_dropped": 0,
@@ -356,20 +356,24 @@ class ZoneMatcher:
         try:
             engine = create_engine(cfg.POSTGRES_URL)
             with engine.connect() as conn:
-                rows = conn.execute(
-                    text("SELECT zone_id, name, polygon_coords, dwell_threshold_sec, active FROM zones")
-                ).fetchall()
-                camera_rows = conn.execute(
-                    text("SELECT camera_id, zone_id FROM cameras WHERE zone_id IS NOT NULL")
-                ).fetchall()
+                try:
+                    rows = conn.execute(
+                        text("SELECT zone_id, camera_id, name, polygon_coords, dwell_threshold_sec, active FROM zones")
+                    ).fetchall()
+                except Exception:
+                    # Backward compatibility before zones.camera_id migration is applied.
+                    rows = conn.execute(
+                        text("SELECT zone_id, NULL as camera_id, name, polygon_coords, dwell_threshold_sec, active FROM zones")
+                    ).fetchall()
             
             new_zones = {}
             new_poly_cache = {}
-            new_camera_map = {}
+            new_camera_map: dict[str, set[str]] = {}
             for r in rows:
                 if not r.active:
                     continue
                 z_id = str(r.zone_id)
+                camera_id = str(r.camera_id) if r.camera_id else None
                 coords = (
                     json.loads(r.polygon_coords)
                     if isinstance(r.polygon_coords, str)
@@ -377,6 +381,7 @@ class ZoneMatcher:
                 )
                 new_zones[z_id] = {
                     "id": z_id,
+                    "camera_id": camera_id,
                     "name": r.name,
                     "polygon_coords": coords,
                     "dwell_threshold_sec": int(r.dwell_threshold_sec or DEFAULT_LOITER_SEC),
@@ -386,9 +391,8 @@ class ZoneMatcher:
                         new_poly_cache[z_id] = Polygon(coords)
                 except Exception as e:
                     logger.error(f"[ZoneMatcher] Error creating polygon for zone {z_id}: {e}")
-
-            for row in camera_rows:
-                new_camera_map[str(row.camera_id)] = str(row.zone_id)
+                if camera_id:
+                    new_camera_map.setdefault(camera_id, set()).add(z_id)
 
             with self._lock:
                 self._zones = new_zones
@@ -398,7 +402,7 @@ class ZoneMatcher:
 
             logger.info(
                 f"[ZoneMatcher] Loaded {len(self._zones)} zones and "
-                f"{len(self._camera_zone_map)} camera zone bindings from DB"
+                f"{sum(len(v) for v in self._camera_zone_map.values())} scoped zone bindings from DB"
             )
         except Exception as e:
             logger.warning(f"[ZoneMatcher] DB load failed (no zones mode): {e}")
@@ -459,11 +463,14 @@ class ZoneMatcher:
                 self._zones.pop(zone_id, None)
                 self._polygon_cache.pop(zone_id, None)
                 logger.info(f"[ZoneMatcher] Hot-reloaded delete for zone={zone_id}")
+                threading.Thread(target=self._load_from_db, daemon=True).start()
             elif action in {"created", "updated"} and isinstance(zone, dict):
                 if zone.get("active", True):
                     coords = zone.get("polygon_coords", [])
+                    camera_id = zone.get("camera_id")
                     self._zones[zone_id] = {
                         "id": zone_id,
+                        "camera_id": camera_id,
                         "name": zone.get("name", ""),
                         "polygon_coords": coords,
                         "dwell_threshold_sec": int(zone.get("dwell_threshold_sec") or DEFAULT_LOITER_SEC),
@@ -477,6 +484,7 @@ class ZoneMatcher:
                     self._zones.pop(zone_id, None)
                     self._polygon_cache.pop(zone_id, None)
                 logger.info(f"[ZoneMatcher] Hot-reloaded {action} for zone={zone_id}")
+                threading.Thread(target=self._load_from_db, daemon=True).start()
             else:
                 # Fallback to full reload for unexpected formats
                 threading.Thread(target=self._load_from_db, daemon=True).start()
@@ -484,20 +492,22 @@ class ZoneMatcher:
     def match(self, cx_norm: float, cy_norm: float, camera_id: Optional[str] = None) -> Optional[dict]:
         pt = Point(cx_norm, cy_norm)
         with self._lock:
-            camera_zone_id = self._camera_zone_map.get(camera_id) if camera_id else None
+            camera_zone_ids = self._camera_zone_map.get(camera_id, set()) if camera_id else set()
 
-            # If camera is bound to a specific zone, enforce that scope.
-            if camera_zone_id and camera_zone_id in self._polygon_cache:
-                try:
-                    poly = self._polygon_cache[camera_zone_id]
-                    if poly.covers(pt):
-                        self._stats["matched"] += 1
-                        return self._zones.get(camera_zone_id)
-                    self._stats["outside_dropped"] += 1
-                    return None
-                except Exception:
-                    self._stats["outside_dropped"] += 1
-                    return None
+            # If camera has scoped zones, enforce that scope.
+            if camera_zone_ids:
+                for z_id in camera_zone_ids:
+                    poly = self._polygon_cache.get(z_id)
+                    if poly is None:
+                        continue
+                    try:
+                        if poly.covers(pt):
+                            self._stats["matched"] += 1
+                            return self._zones.get(z_id)
+                    except Exception:
+                        continue
+                self._stats["outside_dropped"] += 1
+                return None
 
             # Check cached polygons first (O(N) but shapely is fast)
             for z_id, poly in self._polygon_cache.items():

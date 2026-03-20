@@ -26,6 +26,7 @@ logger = logging.getLogger("api.zones")
 
 
 class ZoneCreate(BaseModel):
+    camera_id: str = Field(min_length=1)
     name: str = Field(min_length=1)
     polygon_coords: list[list[float]]
     zone_type: str = "security"
@@ -57,6 +58,7 @@ def _parse_rule(rule: Rule) -> dict[str, Any]:
 
 
 class ZonePatch(BaseModel):
+    camera_id: Optional[str] = None
     name: Optional[str] = Field(default=None, min_length=1)
     polygon_coords: Optional[list[list[float]]] = None
     zone_type: Optional[str] = None
@@ -67,6 +69,7 @@ class ZonePatch(BaseModel):
 def _parse_zone(zone: Zone, rules: list[Rule] | None = None) -> dict[str, Any]:
     return {
         "zone_id": str(zone.zone_id),
+        "camera_id": zone.camera_id,
         "name": zone.name,
         "polygon_coords": zone.polygon_coords,
         "zone_type": zone.zone_type,
@@ -143,6 +146,7 @@ def _publish_zone_update(zone_id: str, action: str, zone_data: Optional[dict[str
 @router.get("")
 def list_zones(
     active_only: bool = Query(False),
+    camera_id: Optional[str] = Query(None),
     zone_type: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
@@ -150,6 +154,8 @@ def list_zones(
     query = db.query(Zone)
     if active_only:
         query = query.filter(Zone.active == True)
+    if camera_id:
+        query = query.filter(Zone.camera_id == camera_id)
     if zone_type:
         query = query.filter(Zone.zone_type == zone_type)
     zones = query.order_by(Zone.created_at.desc()).all()
@@ -181,9 +187,12 @@ def create_zone(
     db: Session = Depends(get_db),
     _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR)),
 ):
+    if not db.query(Camera).filter(Camera.camera_id == payload.camera_id).first():
+        raise HTTPException(400, "Invalid camera_id")
     polygon_coords = _validate_polygon(payload.polygon_coords)
     zone = Zone(
         zone_id=uuid.uuid4(),
+        camera_id=payload.camera_id,
         name=payload.name.strip(),
         polygon_coords=polygon_coords,
         zone_type=payload.zone_type,
@@ -209,7 +218,10 @@ def update_zone(
     zone = db.query(Zone).filter(Zone.zone_id == zid).first()
     if not zone:
         raise HTTPException(404, "Zone not found")
+    if not db.query(Camera).filter(Camera.camera_id == payload.camera_id).first():
+        raise HTTPException(400, "Invalid camera_id")
 
+    zone.camera_id = payload.camera_id
     zone.name = payload.name.strip()
     zone.polygon_coords = _validate_polygon(payload.polygon_coords)
     zone.zone_type = payload.zone_type
@@ -238,6 +250,11 @@ def patch_zone(
     data = payload.model_dump(exclude_unset=True)
     if "name" in data and data["name"] is not None:
         zone.name = data["name"].strip()
+    if "camera_id" in data:
+        camera_id = data["camera_id"]
+        if camera_id and not db.query(Camera).filter(Camera.camera_id == camera_id).first():
+            raise HTTPException(400, "Invalid camera_id")
+        zone.camera_id = camera_id
     if "polygon_coords" in data and data["polygon_coords"] is not None:
         zone.polygon_coords = _validate_polygon(data["polygon_coords"])
     if "zone_type" in data and data["zone_type"] is not None:

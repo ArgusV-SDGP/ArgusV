@@ -77,6 +77,7 @@ class Zone(Base):
     __tablename__ = "zones"
 
     zone_id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    camera_id           = Column(String, ForeignKey("cameras.camera_id"), nullable=True, index=True)
     name                = Column(String, nullable=False)
     polygon_coords      = Column(JSONB, nullable=False)  # [[x,y], ...]  normalised 0..1
     zone_type           = Column(String, default="security")

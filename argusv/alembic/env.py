@@ -4,6 +4,8 @@ import os
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
+from pathlib import Path
+from dotenv import load_dotenv
 
 # Import all models so Alembic can autogenerate migrations
 import sys
@@ -11,6 +13,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from db.models import Base
 
 config = context.config
+
+# Load local .env so Alembic uses the same DB URL as the app.
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(_env_path, override=False)
 
 # Override sqlalchemy.url with env var if set
 postgres_url = os.getenv("POSTGRES_URL")
