@@ -10,6 +10,7 @@ Channels:
   vlm_results     VLM → decision engine
   actions         decision → notification + actuation
   alerts_ws       decision → WebSocket fan-out (dashboard)
+  segments        recording_worker → segment linker (completed .ts files)
 """
 
 import asyncio
@@ -27,6 +28,7 @@ class EventBus:
     rag_indexing   : asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=500))
     snapshots      : asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=1000))
     clips          : asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=200))
+    segments       : asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=500))
 
     def stats(self) -> dict:
         return {
@@ -38,6 +40,7 @@ class EventBus:
             "rag_indexing"   : self.rag_indexing.qsize(),
             "snapshots"      : self.snapshots.qsize(),
             "clips"          : self.clips.qsize(),
+            "segments"       : self.segments.qsize(),
         }
 
 bus = EventBus()

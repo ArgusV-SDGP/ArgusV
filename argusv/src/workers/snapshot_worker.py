@@ -23,8 +23,9 @@ from db.models import Segment
 
 logger = logging.getLogger("snapshot-worker")
 
-SNAPSHOT_DIR = Path(cfg.LOCAL_RECORDINGS_DIR) / "snapshots"
-CLIPS_DIR    = Path(cfg.LOCAL_RECORDINGS_DIR) / "clips"
+LOCAL_RECORDINGS_DIR = Path(cfg.LOCAL_RECORDINGS_DIR)
+SNAPSHOT_DIR = LOCAL_RECORDINGS_DIR / "snapshots"
+CLIPS_DIR = LOCAL_RECORDINGS_DIR / "clips"
 
 async def snapshot_worker():
     """
@@ -82,11 +83,32 @@ def save_snapshot(event: dict) -> str | None:
 
         cv2.imwrite(str(out_path), crop, [cv2.IMWRITE_JPEG_QUALITY, 85])
         logger.info(f"📸 [Snapshot] Saved Thumbnail: {out_path}")
-        return str(out_path)
+
+        # Write thumbnail_url back to Detection row so API can serve it
+        url = f"/recordings/snapshots/{cam_id}/{fname}"
+        _write_thumbnail_url(event_id, url)
+        return url
 
     except Exception as e:
         logger.error(f"[Snapshot] Failed: {e}", exc_info=True)
         return None
+
+
+def _write_thumbnail_url(event_id: str, url: str) -> None:
+    """Write thumbnail URL back to the Detection row (sync, called from thread)."""
+    try:
+        from db.connection import get_db_sync
+        from db.models import Detection
+        db = get_db_sync()
+        try:
+            det = db.query(Detection).filter(Detection.event_id == event_id).first()
+            if det:
+                det.thumbnail_url = url
+                db.commit()
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"[Snapshot] Failed to write thumbnail_url: {e}")
 
 
 async def clip_generation_worker():

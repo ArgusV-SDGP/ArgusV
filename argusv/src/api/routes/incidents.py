@@ -13,7 +13,7 @@ No auth middleware applied yet — get_current_user is a no-op stub.
 from datetime import datetime, timezone
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -44,6 +44,26 @@ def _serialize_incident(inc: Incident) -> dict:
         "resolved_at": inc.resolved_at.isoformat() if inc.resolved_at else None,
         "metadata_json": inc.metadata_json or {},
     }
+
+
+@router.get("")
+def list_incidents(
+    camera_id: Optional[str] = Query(None),
+    threat_level: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
+):
+    query = db.query(Incident)
+    if camera_id:
+        query = query.filter(Incident.camera_id == camera_id)
+    if threat_level:
+        query = query.filter(Incident.threat_level == threat_level.upper())
+    if status:
+        query = query.filter(Incident.status == status.upper())
+    incidents = query.order_by(Incident.detected_at.desc()).limit(limit).all()
+    return [_serialize_incident(i) for i in incidents]
 
 
 @router.get("/{incident_id}")

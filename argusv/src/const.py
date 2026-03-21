@@ -47,7 +47,8 @@ QUEUE_SEGMENTS       = "segments"
 # ── Redis key prefixes ────────────────────────────────────────────
 REDIS_CAMERA_STATUS  = "camera:status:"          # + camera_id (TTL=30s)
 REDIS_ZONE_CONFIG    = "config:zone:"             # + zone_id
-REDIS_ZONE_CHANNEL   = "argus:zone:updated"       # pubsub channel
+REDIS_ZONES_VERSION  = "config:zones:version"
+REDIS_ZONE_CHANNEL   = "config-updates"           # pubsub channel
 REDIS_ALERT_COOLDOWN = "alert:cooldown:"          # + zone_id:severity
 
 # ── Recording ─────────────────────────────────────────────────────

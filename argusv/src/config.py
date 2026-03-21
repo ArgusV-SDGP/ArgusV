@@ -34,18 +34,25 @@ MINIO_SECRET   = os.getenv("MINIO_SECRET_KEY", "minioadmin")
 
 
 # ── Cameras ─────────────────────────────────────────────────────────────────── #
-# Simple single-camera fallback
+# Multi-camera: CAMERAS='[{"id":"cam-01","name":"Front Door","rtsp_url":"rtsp://..."},...]'
+# Falls back to single-camera env vars if CAMERAS is not set.
 
 CAMERA_ID  = os.getenv("CAMERA_ID",  "cam-01")
-RTSP_URL   = os.getenv("RTSP_URL",   "rtsp://rtsp-simulator:8554/stream")
+RTSP_URL   = os.getenv("RTSP_URL",   "rtsp://localhost:8554/cam-01")
 
-# Multi-camera: CAMERAS='[{"id":"cam-01","rtsp_url":"rtsp://..."},...]'
+# RTSP host used in camera URLs — "mediamtx" inside Docker, "localhost" for local dev
+RTSP_HOST  = os.getenv("RTSP_HOST", "localhost")
 
 import json as _json
 _cam_raw = os.getenv("CAMERAS")
-CAMERAS: list[dict] = _json.loads(_cam_raw) if _cam_raw else [
-    {"id": CAMERA_ID, "rtsp_url": RTSP_URL}
-]
+if _cam_raw:
+    CAMERAS: list[dict] = _json.loads(_cam_raw)
+else:
+    # Default demo cameras — each gets an RTSP sim in docker-compose.dev.yml
+    CAMERAS: list[dict] = [
+        {"id": "cam-01", "name": "Front Door",  "rtsp_url": f"rtsp://{RTSP_HOST}:8554/cam-01"},
+        {"id": "cam-02", "name": "Parking Lot",  "rtsp_url": f"rtsp://{RTSP_HOST}:8554/cam-02"},
+    ]
 
 
 # ── Detection ───────────────────────────────────────────────────────────────── #
@@ -60,6 +67,7 @@ USE_TRACKER      = os.getenv("USE_TRACKER",      "true").lower() == "true"
 LOITER_SEC       = int(os.getenv("LOITER_THRESHOLD_SEC", "30"))
 TRACK_UPDATE_SEC = int(os.getenv("TRACK_UPDATE_SEC",     "10"))
 TRACK_EVICT_SEC  = int(os.getenv("TRACK_EVICT_SEC",      "5"))
+ZONE_RESYNC_SEC  = int(os.getenv("ZONE_RESYNC_SEC",      "60"))
 EMBED_FRAME      = os.getenv("EMBED_FRAME",   "true").lower() == "true"
 FRAME_JPEG_Q     = int(os.getenv("FRAME_JPEG_Q", "60"))
 
@@ -78,13 +86,31 @@ WATCHDOG_DISK_WARN_PCT = int(os.getenv("WATCHDOG_DISK_WARN_PCT", "80"))
 
 
 
-# ── VLM ─────────────────────────────────────────────────────────────────────── #
+# ── VLM / GenAI ─────────────────────────────────────────────────────────────── #
 
-OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY", "")
-VLM_MODEL         = os.getenv("VLM_MODEL",        "gpt-4o")
+# Active provider: openai | gemini | ollama | llamacpp | disabled
+GENAI_PROVIDER    = os.getenv("GENAI_PROVIDER",   "openai")
+
+# OpenAI
+OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY", "")
+VLM_MODEL           = os.getenv("VLM_MODEL",           "gpt-4o")
+EMBEDDING_MODEL     = os.getenv("EMBEDDING_MODEL",     "text-embedding-3-small")
 VLM_TRIAGE_MODEL  = os.getenv("VLM_TRIAGE_MODEL", "gpt-4o-mini")
 USE_TIERED_VLM    = os.getenv("USE_TIERED_VLM", "true").lower() == "true"
 VLM_MAX_WORKERS   = int(os.getenv("VLM_MAX_WORKERS", "3"))
+
+# Gemini
+GEMINI_API_KEY          = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL            = os.getenv("GEMINI_MODEL",        "gemini-2.0-flash")
+GEMINI_VISION_MODEL     = os.getenv("GEMINI_VISION_MODEL", "gemini-1.5-pro")
+
+# Ollama (local)
+OLLAMA_BASE_URL  = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
+OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL",    "llava")   # vision-capable model
+
+# LlamaCpp (OpenAI-compatible server)
+LLAMACPP_BASE_URL = os.getenv("LLAMACPP_BASE_URL", "http://llamacpp:8080")
+LLAMACPP_MODEL    = os.getenv("LLAMACPP_MODEL",    "llava")
 
 
 
@@ -110,6 +136,7 @@ MQTT_PASS = os.getenv("MQTT_PASS", "")
 
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8000"))
+MEDIAMTX_HLS_BASE = os.getenv("MEDIAMTX_HLS_BASE", "http://localhost:8888")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 CORS_ALLOW_ORIGINS = [
     origin.strip()
@@ -141,6 +168,10 @@ API_KEYS_JSON = os.getenv(
 PROXY_AUTH_ENABLED = os.getenv("PROXY_AUTH_ENABLED", "false").lower() == "true"
 PROXY_AUTH_USER_HEADER = os.getenv("PROXY_AUTH_USER_HEADER", "x-forwarded-user")
 PROXY_AUTH_ROLE_HEADER = os.getenv("PROXY_AUTH_ROLE_HEADER", "x-forwarded-role")
+
+# ── Development Auth Bypass ──────────────────────────────────────────────────
+# When true, ALL requests are treated as ADMIN — never use in production!
+DEV_AUTH_BYPASS = os.getenv("DEV_AUTH_BYPASS", "false").lower() == "true"
 
 try:
     AUTH_USERS = _json.loads(AUTH_USERS_JSON) if AUTH_USERS_JSON else {}

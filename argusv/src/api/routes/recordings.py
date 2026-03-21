@@ -1,15 +1,16 @@
-"""
-api/routes/recordings.py — NVR Replay API
+"""api/routes/recordings.py — NVR Replay API
 Tasks: API-12, API-13, API-14, API-15
 """
 
 from datetime import datetime, timedelta
 import math
 import uuid
+from pathlib import Path
 from typing import Any, Optional
 
+import config as cfg
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy.orm import Session
 
 from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
@@ -18,29 +19,49 @@ from db.models import Detection, Incident, Segment
 
 router = APIRouter(tags=["recordings"])
 
+# The local recordings root — used to compute web-accessible relative paths
+_REC_ROOT = Path(cfg.LOCAL_RECORDINGS_DIR).resolve()
+
+
+def _local_path_to_web(local_path: str) -> str:
+    """
+    Convert an absolute local filesystem path to a /recordings/... web URL.
+    Works on both Windows and Linux regardless of path separators.
+    """
+    try:
+        rel = Path(local_path).resolve().relative_to(_REC_ROOT)
+        return "/recordings/" + rel.as_posix()
+    except (ValueError, TypeError):
+        # Fallback: strip everything before the last 'recordings/' occurrence
+        normalized = local_path.replace("\\", "/")
+        idx = normalized.rfind("/recordings/")
+        if idx != -1:
+            return normalized[idx:]
+        return local_path
+
 
 def _serialize_segment(seg: Segment) -> dict[str, Any]:
-    # Ensure minio_path (local path) is served as a web-accessible URL
-    # /recordings/cam-01/cam-01_123.ts
-    path = seg.minio_path
-    if "/recordings/" in path:
-        web_path = "/recordings/" + path.split("/recordings/")[-1].replace("\\", "/")
-    else:
-        web_path = path
-
     return {
         "segment_id": str(seg.segment_id),
         "camera_id": seg.camera_id,
         "start_time": seg.start_time.isoformat(),
         "end_time": seg.end_time.isoformat(),
-        "duration_sec": seg.duration_sec,
-        "url": web_path,
+        "duration_sec": float(seg.duration_sec or 0),
+        "url": _local_path_to_web(seg.minio_path),
         "size_bytes": seg.size_bytes,
         "has_motion": seg.has_motion,
         "has_detections": seg.has_detections,
         "detection_count": seg.detection_count,
         "locked": seg.locked,
+        "description": seg.description,
+        "thumbnail_url": seg.thumbnail_url,
     }
+
+
+def _format_hls_program_date_time(dt: datetime) -> str:
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        return dt.isoformat(timespec="milliseconds") + "Z"
+    return dt.isoformat(timespec="milliseconds")
 
 
 @router.get("/api/recordings/{camera_id}")
@@ -82,7 +103,7 @@ def hls_playlist(
         .all()
     )
     if not segs:
-        raise HTTPException(404, "No segments found for requested range")
+        raise HTTPException(404, "No segments found for requested time range")
 
     target_dur = max(1, math.ceil(max(float(s.duration_sec or 1) for s in segs)))
     lines = [
@@ -90,18 +111,78 @@ def hls_playlist(
         "#EXT-X-VERSION:3",
         f"#EXT-X-TARGETDURATION:{target_dur}",
         "#EXT-X-MEDIA-SEQUENCE:0",
+        "#EXT-X-PLAYLIST-TYPE:VOD",
     ]
     for seg in segs:
-        lines.append(f"#EXTINF:{float(seg.duration_sec or 0):.3f},")
-        # Use web-accessible URL for the playlist
-        path = seg.minio_path
-        web_path = "/recordings/" + path.split("/recordings/")[-1].replace("\\", "/")
-        lines.append(web_path)
+        dur = float(seg.duration_sec or 0)
+        # Embed the real-world timestamp as a comment so the frontend can use it for seeking
+        lines.append(f"#EXT-X-PROGRAM-DATE-TIME:{_format_hls_program_date_time(seg.start_time)}")
+        lines.append(f"#EXTINF:{dur:.3f},")
+        lines.append(_local_path_to_web(seg.minio_path))
+
     lines.append("#EXT-X-ENDLIST")
+
     return PlainTextResponse(
         "\n".join(lines) + "\n",
         media_type="application/vnd.apple.mpegurl",
+        headers={
+            "Cache-Control": "no-cache",
+            "Access-Control-Allow-Origin": "*",
+        },
     )
+
+
+@router.get("/api/recordings/{camera_id}/segment-at")
+def segment_at_time(
+    camera_id: str,
+    ts: datetime = Query(..., description="Target wall-clock timestamp"),
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
+):
+    """
+    Returns the segment that contains `ts` and the byte offset within it.
+    Used by the frontend for accurate wall-clock seeking.
+    """
+    seg = (
+        db.query(Segment)
+        .filter(
+            Segment.camera_id == camera_id,
+            Segment.start_time <= ts,
+            Segment.end_time >= ts,
+        )
+        .order_by(Segment.start_time.desc())
+        .first()
+    )
+    if not seg:
+        raise HTTPException(404, "No segment covers the requested timestamp")
+
+    offset_sec = (ts - seg.start_time).total_seconds()
+    return {
+        **_serialize_segment(seg),
+        "offset_sec": round(offset_sec, 3),
+    }
+
+
+
+@router.get("/api/recordings/{camera_id}/recent")
+def get_recent_segment(
+    camera_id: str,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
+):
+    """
+    Returns the most recently completed segment for a camera.
+    Used for the 'Rewind' feature on the live dashboard.
+    """
+    seg = (
+        db.query(Segment)
+        .filter(Segment.camera_id == camera_id)
+        .order_by(Segment.end_time.desc())
+        .first()
+    )
+    if not seg:
+        raise HTTPException(404, "No segments found for this camera")
+    return _serialize_segment(seg)
 
 
 @router.get("/api/recordings/{camera_id}/timeline")

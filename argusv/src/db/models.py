@@ -64,8 +64,11 @@ class Segment(Base):
     has_motion      = Column(Boolean, default=False)
     has_detections  = Column(Boolean, default=False)
     detection_count = Column(Integer, default=0)
-    retain_until    = Column(DateTime, nullable=True)
-    locked          = Column(Boolean, default=False)
+    retain_until         = Column(DateTime, nullable=True)
+    locked               = Column(Boolean, default=False)
+    description          = Column(Text,    nullable=True)        # GPT-4o scene description for this chunk
+    description_embedding= Column(Vector(1536), nullable=True)   # text-embedding-3-small for RAG search
+    thumbnail_url        = Column(String,  nullable=True)        # mid-segment frame for UI preview
 
     camera_rel = relationship("Camera",    back_populates="segments")
     detections = relationship("Detection", back_populates="segment", lazy="dynamic")
@@ -77,12 +80,14 @@ class Zone(Base):
     __tablename__ = "zones"
 
     zone_id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    camera_id           = Column(String, ForeignKey("cameras.camera_id"), nullable=True, index=True)
     name                = Column(String, nullable=False)
     polygon_coords      = Column(JSONB, nullable=False)  # [[x,y], ...]  normalised 0..1
     zone_type           = Column(String, default="security")
     dwell_threshold_sec = Column(Integer, default=30)
     active              = Column(Boolean, default=True)
     created_at          = Column(DateTime, default=datetime.utcnow)
+    updated_at          = Column(DateTime, nullable=True)
 
 
 class Rule(Base):
@@ -147,7 +152,7 @@ class Detection(Base):
     is_threat    = Column(Boolean, nullable=True)
     threat_level = Column(String,  nullable=True)
     vlm_summary  = Column(Text,    nullable=True)
-    vlm_embedding= Column(Vector(384), nullable=True) # Semantic search vector
+    vlm_embedding= Column(Vector(1536), nullable=True) # text-embedding-3-small (1536 dims)
 
     camera_rel   = relationship("Camera",   back_populates="detections")
     segment      = relationship("Segment",  back_populates="detections")

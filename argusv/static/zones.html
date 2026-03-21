@@ -207,6 +207,12 @@
                     <input id="name" name="name" required placeholder="Front Gate" />
                 </div>
                 <div>
+                    <label for="camera_id">Camera</label>
+                    <select id="camera_id" name="camera_id" required>
+                        <option value="">Select camera</option>
+                    </select>
+                </div>
+                <div>
                     <label for="zone_type">Zone Type</label>
                     <select id="zone_type" name="zone_type">
                         <option value="security">security</option>
@@ -253,6 +259,7 @@
         const statusEl = document.getElementById("formStatus");
         const listEl = document.getElementById("zonesList");
         const userEl = document.getElementById("auth-user");
+        const cameraSelectEl = document.getElementById("camera_id");
 
         function setStatus(text, type = "") {
             statusEl.textContent = text;
@@ -341,11 +348,28 @@
                     <div class="zone-item">
                         <strong>${zone.name}</strong>
                         <div class="meta">Type: ${zone.zone_type} • Dwell: ${zone.dwell_threshold_sec}s • Active: ${zone.active}</div>
-                        <div class="meta">Points: ${zone.polygon_coords.length} • ID: ${zone.zone_id}</div>
+                        <div class="meta">Camera: ${zone.camera_id || "-"} • Points: ${zone.polygon_coords.length} • ID: ${zone.zone_id}</div>
                     </div>
                 `).join("");
             } catch (error) {
                 listEl.innerHTML = `<div class="zone-item">Error: ${error.message}</div>`;
+            }
+        }
+
+        async function loadCameras() {
+            cameraSelectEl.innerHTML = `<option value="">Select camera</option>`;
+            try {
+                const response = await window.ArgusAuth.authFetch("/api/cameras");
+                if (!response.ok) {
+                    throw new Error(`Failed to load cameras (${response.status})`);
+                }
+                const cameras = await response.json();
+                cameraSelectEl.innerHTML = [
+                    `<option value="">Select camera</option>`,
+                    ...cameras.map((camera) => `<option value="${camera.camera_id}">${camera.name} (${camera.camera_id})</option>`)
+                ].join("");
+            } catch (error) {
+                setStatus(`Camera load error: ${error.message}`, "error");
             }
         }
 
@@ -361,12 +385,17 @@
 
             const formData = new FormData(event.target);
             const payload = {
+                camera_id: String(formData.get("camera_id") || "").trim(),
                 name: String(formData.get("name") || "").trim(),
                 zone_type: String(formData.get("zone_type") || "security"),
                 dwell_threshold_sec: Number(formData.get("dwell_threshold_sec") || 30),
                 active: String(formData.get("active")) === "true",
                 polygon_coords: points,
             };
+            if (!payload.camera_id) {
+                setStatus("Camera is required.", "error");
+                return;
+            }
             if (!payload.name) {
                 setStatus("Zone name is required.", "error");
                 return;
@@ -398,6 +427,7 @@
             if (!me) return;
             userEl.textContent = `${me.username} (${me.role})`;
             draw();
+            await loadCameras();
             loadZones();
         }
 
