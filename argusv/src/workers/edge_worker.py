@@ -331,6 +331,54 @@ class DwellTracker:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# CameraDetectConfig — resolved detection parameters for one camera
+# ══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class CameraDetectConfig:
+    """
+    Single contract for all detection parameters flowing into DetectLoop.
+    Built once at startup by merging global cfg defaults with optional
+    per-camera DB overrides (Camera.detect_config JSONB column).
+    """
+    camera_id:        str
+    detect_classes:   dict[int, str]   # {class_id: label} — the active filter
+    conf_threshold:   float
+    detect_fps:       int
+    motion_threshold: float
+    use_motion_gate:  bool
+    use_tracker:      bool
+    loiter_sec:       float
+    track_update_sec: float
+    track_evict_sec:  float
+
+    @classmethod
+    def from_db_row(cls, camera_id: str, db_json: Optional[dict]) -> "CameraDetectConfig":
+        """Merge global cfg defaults with per-camera DB overrides."""
+        ov = db_json or {}
+
+        # detect_classes: JSON keys are strings — cast to int
+        raw_classes = ov.get("detect_classes")
+        if isinstance(raw_classes, dict) and raw_classes:
+            detect_classes = {int(k): str(v) for k, v in raw_classes.items()}
+        else:
+            detect_classes = dict(cfg.DETECT_CLASSES)
+
+        return cls(
+            camera_id        = camera_id,
+            detect_classes   = detect_classes,
+            conf_threshold   = float(ov.get("conf_threshold",   cfg.CONF_THRESHOLD)),
+            detect_fps       = int(ov.get("detect_fps",         cfg.DETECT_FPS)),
+            motion_threshold = float(ov.get("motion_threshold", cfg.MOTION_THRESHOLD)),
+            use_motion_gate  = bool(ov.get("use_motion_gate",   cfg.USE_MOTION_GATE)),
+            use_tracker      = bool(ov.get("use_tracker",       cfg.USE_TRACKER)),
+            loiter_sec       = float(ov.get("loiter_sec",       cfg.LOITER_SEC)),
+            track_update_sec = float(ov.get("track_update_sec", cfg.TRACK_UPDATE_SEC)),
+            track_evict_sec  = float(ov.get("track_evict_sec",  cfg.TRACK_EVICT_SEC)),
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ZoneMatcher — loads zones from Postgres, hot-reloads via Redis
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -379,11 +427,16 @@ class ZoneMatcher:
                     if isinstance(r.polygon_coords, str)
                     else r.polygon_coords
                 )
+                # allowed_classes: list of label strings, or None = allow all
+                allowed = r.allowed_classes
+                if isinstance(allowed, str):
+                    allowed = json.loads(allowed)
                 new_zones[z_id] = {
-                    "id": z_id,
+                    "id":              z_id,
                     "camera_id": camera_id,
-                    "name": r.name,
-                    "polygon_coords": coords,
+                    "name":            r.name,
+                    "polygon_coords":  coords,
+                    "allowed_classes": allowed,  # list[str] | None
                     "dwell_threshold_sec": int(r.dwell_threshold_sec or DEFAULT_LOITER_SEC),
                 }
                 try:
@@ -469,10 +522,11 @@ class ZoneMatcher:
                     coords = zone.get("polygon_coords", [])
                     camera_id = zone.get("camera_id")
                     self._zones[zone_id] = {
-                        "id": zone_id,
+                        "id":              zone_id,
                         "camera_id": camera_id,
-                        "name": zone.get("name", ""),
-                        "polygon_coords": coords,
+                        "name":            zone.get("name", ""),
+                        "polygon_coords":  coords,
+                        "allowed_classes": zone.get("allowed_classes"),  # list[str] | None
                         "dwell_threshold_sec": int(zone.get("dwell_threshold_sec") or DEFAULT_LOITER_SEC),
                     }
                     try:
@@ -489,7 +543,15 @@ class ZoneMatcher:
                 # Fallback to full reload for unexpected formats
                 threading.Thread(target=self._load_from_db, daemon=True).start()
 
-    def match(self, cx_norm: float, cy_norm: float, camera_id: Optional[str] = None) -> Optional[dict]:
+    def match(self, cx_norm: float, cy_norm: float, object_class: str, camera_id: Optional[str] = None) -> Optional[dict]:
+        """
+        Return the first zone whose polygon contains (cx_norm, cy_norm) AND
+        whose allowed_classes includes object_class (or is None = allow all).
+
+        Returns None if no zone matches spatially, or the matched zone has
+        an allow-list that excludes this object class.
+        Falls back to a synthetic "Full Frame" zone if no zones are configured.
+        """
         pt = Point(cx_norm, cy_norm)
         with self._lock:
             camera_zone_ids = self._camera_zone_map.get(camera_id, set()) if camera_id else set()
@@ -516,16 +578,23 @@ class ZoneMatcher:
                         self._stats["matched"] += 1
                         return self._zones[z_id]
                 except Exception:
-                    pass
-            
-            # Fallback if no zones defined
+                    continue
+                zone = self._zones[z_id]
+                allowed = zone.get("allowed_classes")
+                # allowed=None means "accept all classes"
+                if allowed is not None and object_class not in allowed:
+                    return None
+                return zone
+
+            # Fallback when no zones are configured
             if not self._zones:
                 self._stats["fallback_full_frame"] += 1
                 return {
-                    "id": "default",
+                    "id": "default", 
                     "name": "Full Frame",
-                    "polygon_coords": [],
+                    "polygon_coords": [], 
                     "dwell_threshold_sec": DEFAULT_LOITER_SEC,
+                    "allowed_classes": None
                 }
             self._stats["outside_dropped"] += 1
         return None
@@ -540,41 +609,43 @@ class ZoneMatcher:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class DetectLoop:
-    def __init__(self, camera_id: str, frame_buffer: FrameBuffer,
+    def __init__(self, detect_cfg: CameraDetectConfig, frame_buffer: FrameBuffer,
                  bus_queue: asyncio.Queue, loop: asyncio.AbstractEventLoop,
                  zone_matcher: ZoneMatcher):
-        self.camera_id    = camera_id
-        self._buf         = frame_buffer
-        self._bus_q       = bus_queue
-        self._loop        = loop
-        self._zones       = zone_matcher
-        self._stop        = threading.Event()
-        self._skip_count  = 0
+        self.camera_id     = detect_cfg.camera_id
+        self._dcfg         = detect_cfg
+        self._buf          = frame_buffer
+        self._bus_q        = bus_queue
+        self._loop         = loop
+        self._zones        = zone_matcher
+        self._stop         = threading.Event()
+        self._skip_count   = 0
         self._detect_count = 0
-
-        self._model       = YOLO(cfg.YOLO_MODEL)
-        self._motion_gate = MotionGate(threshold=cfg.MOTION_THRESHOLD) if cfg.USE_MOTION_GATE else None
-        self._dwell       = DwellTracker(
-            on_event=self._emit_event,
-            camera_id=camera_id,
-            loiter_threshold_sec=cfg.LOITER_SEC,
-            update_interval_sec=cfg.TRACK_UPDATE_SEC,
-            evict_after_sec=cfg.TRACK_EVICT_SEC,
-        ) if cfg.USE_TRACKER else None
-        self._frame_interval = 1.0 / cfg.DETECT_FPS
+        self._frame_interval = 1.0 / detect_cfg.detect_fps
         self._thread: Optional[threading.Thread] = None
+
+        # YOLO model is global (one model path for all cameras)
+        self._model = YOLO(cfg.YOLO_MODEL)
+        # DwellTracker created in start() so stop()/start() cycles work correctly
+        self._dwell: Optional[DwellTracker] = None
 
     def start(self) -> threading.Thread:
         if self._thread and self._thread.is_alive():
             return self._thread
         self._stop.clear()
-        if self._dwell is None and cfg.USE_TRACKER:
+        # Recreate motion gate (fresh background model on restart)
+        self._motion_gate = (
+            MotionGate(threshold=self._dcfg.motion_threshold)
+            if self._dcfg.use_motion_gate else None
+        )
+        # Recreate dwell tracker on each start
+        if self._dcfg.use_tracker:
             self._dwell = DwellTracker(
-                on_event=self._emit_event,
-                camera_id=self.camera_id,
-                loiter_threshold_sec=cfg.LOITER_SEC,
-                update_interval_sec=cfg.TRACK_UPDATE_SEC,
-                evict_after_sec=cfg.TRACK_EVICT_SEC,
+                on_event         = self._emit_event,
+                camera_id        = self.camera_id,
+                loiter_threshold_sec = self._dcfg.loiter_sec,
+                update_interval_sec  = self._dcfg.track_update_sec,
+                evict_after_sec      = self._dcfg.track_evict_sec,
             )
         t = threading.Thread(
             target=self._loop_fn, daemon=True,
@@ -600,10 +671,17 @@ class DetectLoop:
             "frames_skipped":  self._skip_count,
             "frames_detected": self._detect_count,
             "motion_gate_eff": round(self._skip_count / total, 2) if total else 0,
+            "detect_classes":  list(self._dcfg.detect_classes.values()),
+            "conf_threshold":  self._dcfg.conf_threshold,
+            "detect_fps":      self._dcfg.detect_fps,
         }
 
     def _loop_fn(self):
-        logger.info(f"[DetectLoop:{self.camera_id}] Starting…")
+        logger.info(
+            f"[DetectLoop:{self.camera_id}] Starting — "
+            f"classes={list(self._dcfg.detect_classes.values())} "
+            f"conf={self._dcfg.conf_threshold} fps={self._dcfg.detect_fps}"
+        )
         while not self._stop.is_set():
             t0 = time.monotonic()
             cf = self._buf.get_latest()
@@ -621,14 +699,14 @@ class DetectLoop:
 
             self._detect_count += 1
             try:
-                if cfg.USE_TRACKER:
+                if self._dcfg.use_tracker:
                     results = self._model.track(
                         frame, persist=True, verbose=False,
-                        conf=cfg.CONF_THRESHOLD, tracker="bytetrack.yaml",
+                        conf=self._dcfg.conf_threshold, tracker="bytetrack.yaml",
                     )
                 else:
-                    results = self._model(frame, verbose=False, conf=cfg.CONF_THRESHOLD)
-                
+                    results = self._model(frame, verbose=False, conf=self._dcfg.conf_threshold)
+
                 if results and len(results) > 0:
                     self._process_results(frame, cf.timestamp, results[0])
             except Exception as e:
@@ -644,18 +722,20 @@ class DetectLoop:
 
         for box in result.boxes:
             cls_id = int(box.cls[0]) if box.cls is not None else -1
-            if cls_id not in cfg.DETECT_CLASSES:
+            # Filter 1: must be in this camera's active class set
+            if cls_id not in self._dcfg.detect_classes:
                 continue
-            
-            conf     = float(box.conf[0])
-            xyxy     = box.xyxy[0].tolist()
+
+            conf    = float(box.conf[0])
+            xyxy    = box.xyxy[0].tolist()
             x1, y1, x2, y2 = map(int, xyxy)
-            
             track_id = int(box.id[0]) if box.id is not None else None
             cx_norm  = ((x1 + x2) / 2) / w
             cy_norm  = ((y1 + y2) / 2) / h
-            
-            zone = self._zones.match(cx_norm, cy_norm, camera_id=self.camera_id)
+            object_class = self._dcfg.detect_classes[cls_id]
+
+            # Filter 2: must be inside a zone that allows this class
+            zone = self._zones.match(cx_norm, cy_norm, object_class, camera_id=self.camera_id)
             if zone is None:
                 continue
 
@@ -663,7 +743,7 @@ class DetectLoop:
                 "event_id":     str(uuid.uuid4()),
                 "camera_id":    self.camera_id,
                 "timestamp":    timestamp,
-                "object_class": cfg.DETECT_CLASSES[cls_id],
+                "object_class": object_class,
                 "confidence":   round(conf, 3),
                 "track_id":     track_id,
                 "zone_id":      zone["id"],
@@ -672,7 +752,7 @@ class DetectLoop:
                 "frame_w":      w,
                 "frame_h":      h,
             }
-            
+
             if cfg.EMBED_FRAME:
                 _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, cfg.FRAME_JPEG_Q])
                 ev["trigger_frame_b64"] = base64.b64encode(buf).decode()
@@ -699,12 +779,13 @@ class DetectLoop:
 
 class CameraWorker:
     def __init__(self, camera_id: str, rtsp_url: str,
+                 detect_cfg: CameraDetectConfig,
                  bus_queue: asyncio.Queue, loop: asyncio.AbstractEventLoop,
                  zone_matcher: ZoneMatcher):
         self.camera_id = camera_id
         self._buf      = FrameBuffer(rtsp_url=rtsp_url, camera_id=camera_id,
-                                     max_seconds=10, fps=cfg.DETECT_FPS)
-        self._detect   = DetectLoop(camera_id, self._buf, bus_queue, loop, zone_matcher)
+                                     max_seconds=10, fps=detect_cfg.detect_fps)
+        self._detect   = DetectLoop(detect_cfg, self._buf, bus_queue, loop, zone_matcher)
         self._recorder = None
 
         logger.info(f"[CameraWorker:{camera_id}] RECORDINGS_ENABLED={cfg.RECORDINGS_ENABLED}")
@@ -745,11 +826,33 @@ _zone_matcher: Optional[ZoneMatcher]     = None
 def start_cameras(bus_queue: asyncio.Queue, loop: asyncio.AbstractEventLoop):
     global _zone_matcher
     _zone_matcher = ZoneMatcher()
+
+    # Load per-camera detect_config overrides from DB (single query, best-effort)
+    from db.connection import get_db_sync
+    from db.models import Camera as CameraModel
+    db_detect_configs: dict[str, Optional[dict]] = {}
+    try:
+        db = get_db_sync()
+        try:
+            rows = db.query(CameraModel.camera_id, CameraModel.detect_config).all()
+            db_detect_configs = {r.camera_id: r.detect_config for r in rows}
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"[EdgeWorker] Could not load camera detect_config from DB: {e}")
+
     for cam in cfg.CAMERAS:
-        w = CameraWorker(cam["id"], cam["rtsp_url"], bus_queue, loop, _zone_matcher)
+        cam_id = cam["id"]
+        detect_cfg = CameraDetectConfig.from_db_row(cam_id, db_detect_configs.get(cam_id))
+        w = CameraWorker(cam_id, cam["rtsp_url"], detect_cfg, bus_queue, loop, _zone_matcher)
         w.start()
-        _camera_workers[cam["id"]] = w
-    logger.info(f"[EdgeWorker] Started {len(_camera_workers)} camera(s)")
+        _camera_workers[cam_id] = w
+        logger.info(
+            f"[EdgeWorker] Started camera={cam_id} "
+            f"classes={list(detect_cfg.detect_classes.values())} "
+            f"conf={detect_cfg.conf_threshold} fps={detect_cfg.detect_fps}"
+        )
+    logger.info(f"[EdgeWorker] {len(_camera_workers)} camera(s) running")
 
 
 def stop_cameras():

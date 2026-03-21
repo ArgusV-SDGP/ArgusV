@@ -27,20 +27,22 @@ def seed_dev_data():
             cam_id = cam_cfg["id"]
             existing = db.query(Camera).filter_by(camera_id=cam_id).first()
             if existing:
-                # Update rtsp_url if it changed (e.g. switched RTSP_HOST)
                 if existing.rtsp_url != cam_cfg["rtsp_url"]:
                     existing.rtsp_url = cam_cfg["rtsp_url"]
                     logger.info(f"[Seed] Updated rtsp_url for {cam_id}")
                 if cam_cfg.get("name") and existing.name != cam_cfg["name"]:
                     existing.name = cam_cfg["name"]
+                if "detect_config" in cam_cfg:
+                    existing.detect_config = cam_cfg["detect_config"]
                 continue
             db.add(Camera(
-                camera_id  = cam_id,
-                name       = cam_cfg.get("name", cam_id),
-                rtsp_url   = cam_cfg["rtsp_url"],
-                status     = "online",
-                resolution = cam_cfg.get("resolution", "1280x720"),
-                fps        = cam_cfg.get("fps", 25),
+                camera_id     = cam_id,
+                name          = cam_cfg.get("name", cam_id),
+                rtsp_url      = cam_cfg["rtsp_url"],
+                status        = "online",
+                resolution    = cam_cfg.get("resolution", "1280x720"),
+                fps           = cam_cfg.get("fps", 25),
+                detect_config = cam_cfg.get("detect_config"),  # None = use global defaults
             ))
             logger.info(f"[Seed] Inserted camera: {cam_id}")
 
