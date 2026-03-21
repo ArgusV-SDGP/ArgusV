@@ -362,12 +362,55 @@ async def notification_worker():
     while True:
         action: dict = await bus.actions.get()
         try:
-            if action.get("action_type") == "ALERT" and cfg.SLACK_BOT_TOKEN:
-                await _send_slack(action)
+            await _dispatch_notifications(action)
         except Exception as e:
             logger.error(f"[Notification] Error: {e}", exc_info=True)
         finally:
             bus.actions.task_done()
+
+
+async def _dispatch_notifications(action: dict):
+    """Dispatch notifications per DB-configured NotificationRule rows."""
+    from db.connection import get_db_session
+    from db.models import NotificationRule
+    from sqlalchemy import select
+
+    threat_level = action.get("threat_level", "LOW")
+    event_zone_id = str(action.get("zone_id", "")) if action.get("zone_id") else None
+    dispatched = False
+
+    try:
+        async with get_db_session() as db:
+            result = await db.execute(
+                select(NotificationRule).where(NotificationRule.severity == threat_level)
+            )
+            rules = result.scalars().all()
+    except Exception as e:
+        logger.warning(f"[Notification] DB query failed, falling back to env config: {e}")
+        rules = []
+
+    for rule in rules:
+        # "global" rules match all zones; zone-specific rules match only the event's zone
+        if rule.zone_id != "global" and rule.zone_id != event_zone_id:
+            continue
+
+        rule_cfg = rule.config or {}
+        for channel in (rule.channels or []):
+            try:
+                if channel == "slack" and cfg.SLACK_BOT_TOKEN:
+                    await _send_slack(action)
+                    dispatched = True
+                elif channel == "webhook":
+                    webhook_url = rule_cfg.get("webhook_url")
+                    if webhook_url:
+                        await _send_webhook(action, webhook_url)
+                        dispatched = True
+            except Exception as e:
+                logger.error(f"[Notification] Channel '{channel}' error: {e}")
+
+    # Fallback: no rules configured → use env-based Slack if available
+    if not dispatched and action.get("action_type") == "ALERT" and cfg.SLACK_BOT_TOKEN:
+        await _send_slack(action)
 
 
 async def _send_slack(action: dict):
@@ -385,3 +428,18 @@ async def _send_slack(action: dict):
             json={"channel": cfg.SLACK_CHANNEL_ID, "text": text},
         )
     logger.info(f"[Slack] Sent alert: {threat} in {zone}")
+
+
+async def _send_webhook(action: dict, url: str):
+    import httpx
+    payload = {
+        "threat_level":  action.get("threat_level"),
+        "zone_name":     action.get("zone_name"),
+        "object_class":  action.get("object_class"),
+        "camera_id":     action.get("camera_id"),
+        "summary":       action.get("summary"),
+        "timestamp":     action.get("timestamp"),
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(url, json=payload)
+    logger.info(f"[Webhook] Sent alert to {url}: {resp.status_code}")
