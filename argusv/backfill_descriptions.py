@@ -24,8 +24,6 @@ engine = create_engine("postgresql://argus:password@localhost:5434/argus_db_new"
 BASE_DIR = Path(__file__).parent  # argusv/
 
 # ── Frame extraction ──────────────────────────────────────────────────────────
-
-
 def extract_frames(seg_path: str, n: int = 4) -> tuple[list[bytes], float]:
     duration = float(cfg.SEGMENT_DURATION_SEC)
     try:
@@ -43,7 +41,8 @@ def extract_frames(seg_path: str, n: int = 4) -> tuple[list[bytes], float]:
     seek_times = [margin + i * usable / (n - 1) for i in range(n)] if n > 1 else [duration / 2]
 
     frames: list[bytes] = []
-    for seek in seek_times:
+    
+    for seek in seek_times:    
         tmp = Path(tempfile.mktemp(suffix=".jpg"))
         try:
             r = subprocess.run(
@@ -53,8 +52,10 @@ def extract_frames(seg_path: str, n: int = 4) -> tuple[list[bytes], float]:
             )
             if r.returncode == 0 and tmp.exists() and tmp.stat().st_size > 0:
                 frames.append(tmp.read_bytes())
+        
         except Exception:
             pass
+        
         finally:
             if tmp.exists():
                 tmp.unlink()
@@ -71,6 +72,7 @@ async def describe_with_gemini(seg_path: str, duration: float) -> str | None:
             ["ffmpeg", "-y", "-i", seg_path, "-c", "copy", "-movflags", "+faststart", str(tmp_mp4)],
             capture_output=True, timeout=30,
         )
+
         if r.returncode != 0 or not tmp_mp4.exists():
             return None
         video = tmp_mp4.read_bytes()
@@ -165,6 +167,7 @@ async def main():
         else:
             print(f"  File not on disk")
 
+
         # Description
         if not desc or desc == PLACEHOLDER:
             if full.exists():
@@ -173,16 +176,20 @@ async def main():
             else:
                 print(f"  desc: skipped (no file)")
 
+
         if not desc:
             continue
+
 
         # Embedding
         embedding = None
         if needs_embed:
             embedding = await embed_text(desc)
+
             print(f"  embed: {'OK' if embedding else 'FAILED'}")
 
         # Thumbnail
+        
         thumbnail_url = None
         if needs_thumb and frames:
             mid = frames[len(frames) // 2]
@@ -193,7 +200,9 @@ async def main():
             thumbnail_url = f"/recordings/{cam_id}/thumbnails/{seg_id}.jpg"
             print(f"  thumb: {thumbnail_url}")
 
+
         # Save to DB — use ORM so pgvector handles the vector column correctly
+        
         with Session(engine) as db:
             seg_row = db.get(_Seg, seg_id)
             if seg_row:
@@ -203,10 +212,9 @@ async def main():
                 if thumbnail_url:
                     seg_row.thumbnail_url = thumbnail_url
                 db.commit()
+
         print(f"  saved.")
+        
         await asyncio.sleep(0.5)
-
-    print("\nDone.")
-
 
 asyncio.run(main())
