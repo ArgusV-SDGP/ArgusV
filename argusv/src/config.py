@@ -107,6 +107,8 @@ SLACK_BOT_TOKEN  = os.getenv("SLACK_BOT_TOKEN",  "")
 SLACK_CHANNEL_ID = os.getenv("SLACK_CHANNEL_ID", "#argus-alerts")
 RATE_LIMIT_TTL   = int(os.getenv("RATE_LIMIT_TTL_SEC", "300"))
 
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID",   "")
 
 
 # ── MQTT / Actuation ────────────────────────────────────────────────────────── #

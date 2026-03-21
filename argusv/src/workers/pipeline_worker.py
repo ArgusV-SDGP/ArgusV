@@ -388,8 +388,9 @@ async def notification_worker():
     while True:
         action: dict = await bus.actions.get()
         try:
-            if action.get("action_type") == "ALERT" and cfg.SLACK_BOT_TOKEN:
-                await _send_slack(action)
+            if action.get("action_type") == "ALERT":
+                if cfg.TELEGRAM_BOT_TOKEN and cfg.TELEGRAM_CHAT_ID:
+                    await _send_telegram(action)
         except Exception as e:
             logger.error(f"[Notification] Error: {e}", exc_info=True)
         finally:
@@ -411,3 +412,30 @@ async def _send_slack(action: dict):
             json={"channel": cfg.SLACK_CHANNEL_ID, "text": text},
         )
     logger.info(f"[Slack] Sent alert: {threat} in {zone}")
+
+
+async def _send_telegram(action: dict):
+    import httpx
+    import base64
+    threat  = action.get("threat_level", "?")
+    zone    = action.get("zone_name", "?")
+    obj     = action.get("object_class", "?")
+    summary = action.get("summary", "")
+    emoji   = {"HIGH": "🔴", "MEDIUM": "🟠", "LOW": "🟡"}.get(threat, "⚪")
+    caption = f"{emoji} *{threat} THREAT* — {obj.capitalize()} in *{zone}*\n{summary}"
+
+    frame_b64 = action.get("trigger_frame_b64")
+    async with httpx.AsyncClient(timeout=30) as client:
+        if frame_b64:
+            photo_bytes = base64.b64decode(frame_b64)
+            await client.post(
+                f"https://api.telegram.org/bot{cfg.TELEGRAM_BOT_TOKEN}/sendPhoto",
+                data={"chat_id": cfg.TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "Markdown"},
+                files={"photo": ("snapshot.jpg", photo_bytes, "image/jpeg")},
+            )
+        else:
+            await client.post(
+                f"https://api.telegram.org/bot{cfg.TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": cfg.TELEGRAM_CHAT_ID, "text": caption, "parse_mode": "Markdown"},
+            )
+    logger.info(f"[Telegram] Sent alert: {threat} in {zone}")
