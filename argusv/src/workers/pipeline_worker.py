@@ -103,17 +103,6 @@ async def stream_ingestion_worker():
                 cfg.GENAI_PROVIDER != "disabled"
             )
 
-            # Rate limit: suppress repeat VLM + Slack for same object+zone within TTL window
-            if needs_vlm:
-                cam   = event.get("camera_id", "")
-                zone  = event.get("zone_name", "")
-                obj   = event.get("object_class", "")
-                if await _is_rate_limited(cam, zone, obj):
-                    logger.debug(f"[Pipeline] Rate limited: {obj} in '{zone}' on {cam}")
-                    needs_vlm = False
-                else:
-                    await _set_rate_limit(cam, zone, obj)
-
             # Always push to WebSocket immediately (fast alert path)
             alert = {
                 **event,
@@ -130,11 +119,11 @@ async def stream_ingestion_worker():
                 # if it's a high-confidence start or loiter
                 if event_type in ("START", "LOITERING", "DETECTED") and confidence >= cfg.CONF_THRESHOLD:
                      await bus.vlm_results.put({
-                         **event, 
+                         **event,
                          "vlm": {
                              "threat_level": "LOW",
                              "is_threat": False,
-                             "summary": "Motion detected (No VLM analysis)"
+                             "summary": None,   # no VLM ran — keep null so RAG ignores it
                          }
                      })
                 
@@ -217,23 +206,8 @@ async def _call_openai(event: dict) -> dict:
         "Content-Type":  "application/json",
     }
 
-    zone_name    = event.get("zone_name", "")
-    object_class = event.get("object_class", "")
-    dwell_sec    = event.get("dwell_sec", 0)
-    event_type   = event.get("event_type", "")
-
-    triage_prompt = (
-        f"Security camera alert: {object_class} detected in '{zone_name}'. "
-        f"Event type: {event_type}. Dwell time: {dwell_sec}s. "
-        "Is this worth escalating? Reply ONE word: YES or NO."
-    )
-
-    full_prompt = (
-        f"You are a security analyst reviewing camera footage. "
-        f"A {object_class} was detected in '{zone_name}' (dwell: {dwell_sec}s, type: {event_type}). "
-        "Analyse this scene. Respond JSON: "
-        '{"threat_level":"HIGH|MEDIUM|LOW","is_threat":true|false,"summary":"<1 sentence>","recommended_action":"ALERT|MONITOR|IGNORE"}'
-    )
+    from genai.manager import _build_prompts_async
+    triage_prompt, full_prompt = await _build_prompts_async(event)
 
     async with httpx.AsyncClient(timeout=30) as client:
         # Triage call (cheap)

@@ -158,6 +158,11 @@ GEMINI_API_KEY          = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL            = os.getenv("GEMINI_MODEL",        "gemini-2.0-flash")
 GEMINI_VISION_MODEL     = os.getenv("GEMINI_VISION_MODEL", "gemini-1.5-pro")
 
+# Segment VLM provider — who describes completed video segments for RAG indexing
+# "gemini"  → uploads full .ts video to Gemini File API (native video understanding)
+# "openai"  → extracts FRAMES_PER_SEGMENT frames and sends to GPT-4o (default)
+SEGMENT_VLM_PROVIDER    = os.getenv("SEGMENT_VLM_PROVIDER", "openai")
+
 # Ollama (local)
 OLLAMA_BASE_URL  = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL",    "llava")   # vision-capable model

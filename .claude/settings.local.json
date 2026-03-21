@@ -8,7 +8,8 @@
       "Bash(find /c/Users/sabesonk/Documents/Argusv-revamped/argusv-forntend-/app /c/Users/sabesonk/Documents/Argusv-revamped/argusv-forntend-/components -name *.tsx -o -name *.ts)",
       "Bash(find /c/Users/sabesonk/Documents/Argusv-revamped/argusv-forntend-/lib -name *.ts)",
       "Bash(npx tsc:*)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Bash(python backfill_descriptions.py)"
     ]
   }
 }
