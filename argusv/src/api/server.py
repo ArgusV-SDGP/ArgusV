@@ -54,6 +54,9 @@ logger = logging.getLogger("api.server")
 
 STATIC_DIR = Path(__file__).parent.parent.parent / "static"
 
+# Track application start time for uptime reporting
+APP_STARTED_AT: float = time.time()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

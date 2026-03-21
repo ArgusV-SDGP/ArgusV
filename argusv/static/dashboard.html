@@ -1664,28 +1664,43 @@
         const res = await window.ArgusAuth.authFetch('/api/stats');
         const stats = await res.json();
 
-        // Camera health
-        const camOnline = stats.cameras?.filter(c => c.status === 'online').length || 0;
-        const camTotal = stats.cameras?.length || 0;
+        // Camera health (API: stats.cameras.health is the array)
+        const camHealth = stats.cameras?.health || [];
+        const camOnline = stats.cameras?.online ?? camHealth.filter(c => c.status === 'online').length;
+        const camTotal = stats.cameras?.total ?? camHealth.length;
         const camColor = camOnline === camTotal ? 'var(--green)' : (camOnline > 0 ? 'var(--orange)' : 'var(--red)');
         document.getElementById('sys-cameras').innerHTML =
           `<span style="color:${camColor}">●</span> ${camOnline} / ${camTotal}`;
 
-        // Detections & Incidents (24h)
-        document.getElementById('sys-detections').textContent = stats.detections_24h || 0;
-        document.getElementById('sys-incidents').textContent = stats.incidents_24h || 0;
+        // Detections & Incidents (24h) — API uses nested objects
+        document.getElementById('sys-detections').textContent = stats.detections?.last_24h ?? 0;
+        document.getElementById('sys-incidents').textContent = stats.incidents?.last_24h ?? 0;
 
-        // Disk usage
-        const diskGB = ((stats.disk_usage_bytes || 0) / (1024 ** 3)).toFixed(1);
-        const segmentsGB = ((stats.segments_storage_bytes || 0) / (1024 ** 3)).toFixed(1);
-        document.getElementById('sys-disk').textContent = `${segmentsGB} GB (${diskGB} GB total)`;
+        // Disk usage — API returns values already in GB
+        const segmentsGB = (stats.recordings?.total_storage_gb || 0).toFixed(1);
+        const diskGB = (stats.recordings?.disk_usage?.used_gb || 0).toFixed(1);
+        const diskTotalGB = (stats.recordings?.disk_usage?.total_gb || 0).toFixed(1);
+        const diskPct = stats.recordings?.disk_usage?.used_pct ?? 0;
+        document.getElementById('sys-disk').textContent =
+          `${segmentsGB} GB segs · ${diskGB}/${diskTotalGB} GB (${diskPct}%)`;
 
-        // Queue health
-        const queueTotal = Object.values(stats.queues || {}).reduce((sum, q) => sum + q, 0);
+        // Queue health — API: stats.bus.queue_health, each entry has a .size field
+        const queueHealth = stats.bus?.queue_health || {};
+        const queueTotal = Object.values(queueHealth).reduce((sum, q) => sum + (q.size || 0), 0);
         const queueColor = queueTotal < 100 ? 'var(--green)' : (queueTotal < 500 ? 'var(--orange)' : 'var(--red)');
         const queueStatus = queueTotal < 100 ? 'OK' : (queueTotal < 500 ? 'WARN' : 'CRITICAL');
         document.getElementById('sys-queue').innerHTML =
           `<span style="color:${queueColor}">●</span> ${queueStatus} (${queueTotal})`;
+
+        // Seed session counters from API on first load (if WS hasn't fired yet)
+        const byThreat = stats.incidents?.by_threat_level || {};
+        if (total === 0 && stats.incidents?.last_24h > 0) {
+          counters['HIGH']   = byThreat['HIGH']   || 0;
+          counters['MEDIUM'] = byThreat['MEDIUM'] || 0;
+          counters['LOW']    = byThreat['LOW']    || 0;
+          total = stats.incidents.last_24h;
+          updateCounters();
+        }
 
       } catch (err) {
         console.error('Failed to load system stats:', err);

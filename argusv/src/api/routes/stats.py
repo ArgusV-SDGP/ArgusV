@@ -15,6 +15,7 @@ Provides runtime statistics about:
 import logging
 import os
 import shutil
+import time
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -31,6 +32,16 @@ from db.models import Camera, Detection, Incident, Segment
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 logger = logging.getLogger("api.stats")
 
+# Imported lazily to avoid circular imports at module load time
+def _get_app_started() -> float:
+    try:
+        from api.server import APP_STARTED_AT
+        return APP_STARTED_AT
+    except ImportError:
+        return time.time()
+
+_app_started: float = time.time()  # fallback; overwritten on first request
+
 
 @router.get("")
 def get_system_stats(
@@ -45,6 +56,8 @@ def get_system_stats(
     - Disk usage for recordings
     - Latest incident summary
     """
+    global _app_started
+    _app_started = _get_app_started()
 
     # 1. Bus queue stats
     bus_stats = bus.stats()
@@ -146,7 +159,8 @@ def get_system_stats(
     return {
         "timestamp": datetime.utcnow().isoformat(),
         "uptime_info": {
-            "app_started": "Unknown",  # TODO: Track app start time
+            "app_started": datetime.utcfromtimestamp(_app_started).isoformat(),
+            "uptime_seconds": round(time.time() - _app_started),
         },
         "bus": {
             "queue_health": queue_health,
