@@ -1322,6 +1322,32 @@
     </div>
 
     <div class="panel-section">
+      <div class="panel-title">⚙️ System Health</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span>Cameras:</span>
+          <span id="sys-cameras"><span style="color:var(--green)">●</span> 0 / 0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span>Detections (24h):</span>
+          <span id="sys-detections">0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span>Incidents (24h):</span>
+          <span id="sys-incidents">0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span>Disk Usage:</span>
+          <span id="sys-disk">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span>Queue Health:</span>
+          <span id="sys-queue"><span style="color:var(--green)">●</span> OK</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section">
       <div class="panel-title">📊 Session Stats</div>
       <div class="counters">
         <div class="counter red">
@@ -1618,6 +1644,45 @@
       }
     }
 
+    // ── System Stats (sidebar) ────────────────────────────────────────────────
+    async function loadSystemStats() {
+      try {
+        const res = await window.ArgusAuth.authFetch('/api/stats');
+        const stats = await res.json();
+
+        // Camera health
+        const camOnline = stats.cameras?.filter(c => c.status === 'online').length || 0;
+        const camTotal = stats.cameras?.length || 0;
+        const camColor = camOnline === camTotal ? 'var(--green)' : (camOnline > 0 ? 'var(--orange)' : 'var(--red)');
+        document.getElementById('sys-cameras').innerHTML =
+          `<span style="color:${camColor}">●</span> ${camOnline} / ${camTotal}`;
+
+        // Detections & Incidents (24h)
+        document.getElementById('sys-detections').textContent = stats.detections_24h || 0;
+        document.getElementById('sys-incidents').textContent = stats.incidents_24h || 0;
+
+        // Disk usage
+        const diskGB = ((stats.disk_usage_bytes || 0) / (1024 ** 3)).toFixed(1);
+        const segmentsGB = ((stats.segments_storage_bytes || 0) / (1024 ** 3)).toFixed(1);
+        document.getElementById('sys-disk').textContent = `${segmentsGB} GB (${diskGB} GB total)`;
+
+        // Queue health
+        const queueTotal = Object.values(stats.queues || {}).reduce((sum, q) => sum + q, 0);
+        const queueColor = queueTotal < 100 ? 'var(--green)' : (queueTotal < 500 ? 'var(--orange)' : 'var(--red)');
+        const queueStatus = queueTotal < 100 ? 'OK' : (queueTotal < 500 ? 'WARN' : 'CRITICAL');
+        document.getElementById('sys-queue').innerHTML =
+          `<span style="color:${queueColor}">●</span> ${queueStatus} (${queueTotal})`;
+
+      } catch (err) {
+        console.error('Failed to load system stats:', err);
+        document.getElementById('sys-cameras').textContent = '—';
+        document.getElementById('sys-detections').textContent = '—';
+        document.getElementById('sys-incidents').textContent = '—';
+        document.getElementById('sys-disk').textContent = '—';
+        document.getElementById('sys-queue').innerHTML = '<span style="color:var(--red)">●</span> ERROR';
+      }
+    }
+
     // ── View Toggle ───────────────────────────────────────────────────────────
     let currentView = 'cameras';
     function switchView(view) {
@@ -1790,8 +1855,23 @@
 
     // ── Live Camera Grid (HLS.js) ────────────────────────────────────────────
     const hlsInstances = new Map();
-    // MediaMTX HLS base URL — same host, port 8888
-    const MEDIAMTX_HLS_BASE = `${location.protocol}//${location.hostname}:8888`;
+    const hlsRetryTimers = new Map();
+    // MediaMTX HLS base URL — loaded from server config at boot
+    let MEDIAMTX_HLS_BASE = 'http://localhost:8888'; // safe fallback
+
+    async function loadUiConfig() {
+      try {
+        const res = await fetch('/api/config/ui');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.mediamtx_hls_base) {
+            MEDIAMTX_HLS_BASE = data.mediamtx_hls_base;
+          }
+        }
+      } catch (e) {
+        console.warn('[ArgusV] Could not load UI config, using fallback HLS base:', MEDIAMTX_HLS_BASE);
+      }
+    }
 
     function buildCameraGrid(cameras) {
       const grid = document.getElementById('camera-grid');
@@ -1831,6 +1911,7 @@
           <div class="cam-overlay-bottom">
             <div class="cam-fps" id="fps-${camId}">-- fps</div>
             <div class="cam-controls">
+              <button class="cam-ctrl-btn" onclick="rewindCamera('${camId}')" title="Rewind 10s">↩</button>
               <button class="cam-ctrl-btn" onclick="toggleFullscreen('${camId}')" title="Fullscreen">⛶</button>
             </div>
           </div>
@@ -1842,6 +1923,20 @@
         const camId = cam.camera_id || cam.name;
         attachHlsStream(camId);
       });
+    }
+
+    async function rewindCamera(camId) {
+      try {
+        const res = await window.ArgusAuth.authFetch(`/api/recordings/${camId}/recent`);
+        if (!res.ok) throw new Error('No recent recordings');
+        const seg = await res.json();
+        // Go to recordings page at end_time minus a few seconds
+        const endTs = new Date(seg.end_time);
+        const rewindTs = new Date(endTs.getTime() - 10000); // 10s before end
+        window.location.href = `/static/recordings.html?camera_id=${camId}&ts=${encodeURIComponent(rewindTs.toISOString())}`;
+      } catch (e) {
+        alert('Could not rewind: ' + e.message);
+      }
     }
 
     function attachHlsStream(camId) {
@@ -1940,6 +2035,141 @@
       }
     }
 
+    function clearHlsRetry(camId) {
+      if (!hlsRetryTimers.has(camId)) return;
+      clearTimeout(hlsRetryTimers.get(camId));
+      hlsRetryTimers.delete(camId);
+    }
+
+    function scheduleHlsRetry(camId, callback) {
+      if (hlsRetryTimers.has(camId)) return;
+      const timer = setTimeout(() => {
+        hlsRetryTimers.delete(camId);
+        callback();
+      }, 5000);
+      hlsRetryTimers.set(camId, timer);
+    }
+
+    attachHlsStream = function (camId) {
+      const videoEl = document.getElementById(`video-${camId}`);
+      const placeholder = document.getElementById(`ph-${camId}`);
+      const liveBadge = document.getElementById(`live-badge-${camId}`);
+      const statusBadge = document.getElementById(`status-badge-${camId}`);
+      if (!videoEl) return;
+
+      const hlsUrl = `${MEDIAMTX_HLS_BASE}/${camId}/index.m3u8`;
+
+      if (Hls.isSupported()) {
+        if (hlsInstances.has(camId)) {
+          hlsInstances.get(camId).destroy();
+        }
+        clearHlsRetry(camId);
+
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true,
+          liveSyncDurationCount: 2,
+          liveMaxLatencyDurationCount: 5,
+          liveDurationInfinity: true,
+          manifestLoadingTimeOut: 10000,
+          manifestLoadingMaxRetry: 6,
+          manifestLoadingRetryDelay: 2000,
+        });
+
+        hlsInstances.set(camId, hls);
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(videoEl);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          clearHlsRetry(camId);
+          videoEl.play().catch(() => { });
+          if (placeholder) placeholder.style.display = 'none';
+          if (liveBadge) liveBadge.style.opacity = '1';
+          if (statusBadge) {
+            statusBadge.textContent = 'Live';
+            statusBadge.className = 'cam-status-badge online';
+          }
+        });
+
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (!data.fatal) return;
+
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            if (statusBadge) {
+              statusBadge.textContent = 'Recovering';
+              statusBadge.className = 'cam-status-badge connecting';
+            }
+            hls.recoverMediaError();
+            return;
+          }
+
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            hls.startLoad();
+          }
+
+          if (placeholder) {
+            placeholder.innerHTML = `
+              <div class="cam-ph-icon">ðŸ“¡</div>
+              <div class="cam-ph-text">Stream unavailable</div>
+              <div class="cam-ph-text" style="font-size:11px;opacity:0.6">Retrying in 5sâ€¦</div>`;
+            placeholder.style.display = 'flex';
+          }
+          if (liveBadge) liveBadge.style.opacity = '0';
+          if (statusBadge) {
+            statusBadge.textContent = 'Offline';
+            statusBadge.className = 'cam-status-badge offline';
+          }
+
+          scheduleHlsRetry(camId, () => {
+            if (placeholder) {
+              placeholder.innerHTML = `
+                <div class="cam-spinner"></div>
+                <div class="cam-ph-text">Reconnectingâ€¦</div>`;
+              placeholder.style.display = 'flex';
+            }
+            if (statusBadge) {
+              statusBadge.textContent = 'Connecting';
+              statusBadge.className = 'cam-status-badge connecting';
+            }
+            hls.destroy();
+            if (hlsInstances.get(camId) === hls) {
+              hlsInstances.delete(camId);
+            }
+            attachHlsStream(camId);
+          });
+        });
+        return;
+      }
+
+      if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+        videoEl.src = hlsUrl;
+        videoEl.addEventListener('loadedmetadata', () => {
+          clearHlsRetry(camId);
+          videoEl.play().catch(() => { });
+          if (placeholder) placeholder.style.display = 'none';
+          if (liveBadge) liveBadge.style.opacity = '1';
+          if (statusBadge) {
+            statusBadge.textContent = 'Live';
+            statusBadge.className = 'cam-status-badge online';
+          }
+        }, { once: true });
+        videoEl.addEventListener('error', () => {
+          if (statusBadge) {
+            statusBadge.textContent = 'Offline';
+            statusBadge.className = 'cam-status-badge offline';
+          }
+          scheduleHlsRetry(camId, () => attachHlsStream(camId));
+        }, { once: true });
+        return;
+      }
+
+      if (placeholder) {
+        placeholder.innerHTML = `
+          <div class="cam-ph-icon">âš ï¸</div>
+          <div class="cam-ph-text">HLS not supported in this browser</div>`;
+      }
+    };
+
     function toggleFullscreen(camId) {
       const tile = document.getElementById(`tile-${camId}`);
       if (!tile) return;
@@ -1958,6 +2188,7 @@
 
     // ── Boot ──────────────────────────────────────────────────────────────────
     async function boot() {
+      await loadUiConfig(); // load MEDIAMTX_HLS_BASE from server before anything else
       const me = await window.ArgusAuth.requireAuth();
       if (!me) return;
       currentUser = me;
@@ -1972,7 +2203,18 @@
       connect();
       loadCameras().then(() => buildCameraGrid(cameraList));
       setInterval(loadCameras, 30000);
+
+      // Load and refresh system stats
+      loadSystemStats();
+      setInterval(loadSystemStats, 10000); // Refresh every 10 seconds
     }
+
+    window.addEventListener('beforeunload', () => {
+      hlsInstances.forEach(instance => instance.destroy());
+      hlsInstances.clear();
+      hlsRetryTimers.forEach(timer => clearTimeout(timer));
+      hlsRetryTimers.clear();
+    });
 
     boot();
   </script>

@@ -47,6 +47,7 @@ def test_issue_token_with_valid_credentials(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_get_current_user_api_key(monkeypatch):
+    monkeypatch.setattr(jwt_handler.cfg, "DEV_AUTH_BYPASS", False)
     monkeypatch.setattr(
         jwt_handler.cfg,
         "API_KEYS",

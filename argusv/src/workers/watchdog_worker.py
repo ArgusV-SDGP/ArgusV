@@ -43,65 +43,76 @@ async def watchdog_worker():
 
 async def _check_cameras():
     """
-    Check Redis heartbeats for each configured camera.
+    Check camera health by checking buffer state and frame activity.
     Requires _MISS_THRESHOLD consecutive missed beats before restart,
     so transient reconnects / H264 decode errors don't trigger spurious restarts.
     Task WATCH-02, WATCH-03
     """
-    import redis as _redis
-    r = _redis.from_url(cfg.REDIS_URL, decode_responses=True)
     from workers.edge_worker import _camera_workers
     for cam_id, worker in _camera_workers.items():
-        alive = r.exists(f"camera:status:{cam_id}")
-        if alive:
-            _miss_counts[cam_id] = 0   # heartbeat present — reset counter
-            continue
+        health = worker.health()
 
-        _miss_counts[cam_id] += 1
-        misses = _miss_counts[cam_id]
+        # Check if camera is actually connected and receiving frames
+        is_connected = health.get("connected", False)
+        frame_count = health.get("frame_count", 0)
 
-        # Also skip restart if the FrameBuffer got a good frame recently
+        # Also check last good frame timestamp from FrameBuffer
         buf = getattr(worker, "_buf", None)
         last_good = getattr(buf, "_last_good_frame_ts", 0.0)
+
+        # If camera got frame recently, it's healthy
         if time.time() - last_good < WATCHDOG_INTERVAL_SEC * 1.5:
-            logger.info(
-                f"[Watchdog] Camera {cam_id} heartbeat miss #{misses} "
-                f"but FrameBuffer got frame recently — skipping restart"
-            )
+            _miss_counts[cam_id] = 0
+            logger.debug(f"[Watchdog] Camera {cam_id} healthy: {frame_count} frames, buffer={health.get('buffer_size', 0)}")
             continue
 
-        if misses < _MISS_THRESHOLD:
-            logger.info(
-                f"[Watchdog] Camera {cam_id} heartbeat miss #{misses}/{_MISS_THRESHOLD} — waiting"
-            )
-            continue
+        # If connected but no recent frames, increment miss counter
+        if not is_connected and frame_count == 0:
+            _miss_counts[cam_id] += 1
+            misses = _miss_counts[cam_id]
 
-        logger.warning(
-            f"[Watchdog] Camera {cam_id} offline ({misses} missed beats) — restarting thread"
-        )
-        _miss_counts[cam_id] = 0
-        try:
-            worker.stop()
-        except Exception:
-            pass
-        worker.start()
+            if misses < _MISS_THRESHOLD:
+                logger.info(
+                    f"[Watchdog] Camera {cam_id} offline #{misses}/{_MISS_THRESHOLD} — waiting"
+                )
+                continue
+
+            # Threshold reached - restart
+            logger.warning(
+                f"[Watchdog] Camera {cam_id} offline ({misses} consecutive checks) — restarting thread"
+            )
+            _miss_counts[cam_id] = 0
+            try:
+                worker.stop()
+            except Exception:
+                pass
+            worker.start()
+        else:
+            # Camera is connected, reset counter
+            _miss_counts[cam_id] = 0
 
 
 async def _check_disk():
     """
-    Warn when recordings directory >80% full.
+    Warn when recordings directory >80% full OR >10GB used.
     Task WATCH-05
     """
     import shutil
     import os
-    
+
     # Use the same path as cleanup worker
     recordings_dir = cfg.LOCAL_RECORDINGS_DIR
     if os.path.exists(recordings_dir):
         usage = shutil.disk_usage(recordings_dir)
         pct = usage.used / usage.total
-        if pct > 0.8:
-            logger.warning(f"[Watchdog] Disk usage at {pct:.0%} for {recordings_dir} — cleanup needed")
+        used_gb = usage.used / (1024**3)
+
+        # Only warn if both conditions met: >80% full AND >1GB used
+        # This prevents false positives on small partitions
+        if pct > 0.8 and used_gb > 1.0:
+            logger.warning(f"[Watchdog] Disk usage at {pct:.0%} ({used_gb:.1f}GB used) for {recordings_dir} — cleanup needed")
+        elif used_gb > 10.0:
+            logger.info(f"[Watchdog] Recordings using {used_gb:.1f}GB — consider cleanup")
 
 
 async def _check_queue_depth():

@@ -30,7 +30,11 @@ from api.routes.incidents import router as incidents_router
 from api.routes.recordings import router as recordings_router
 from api.routes.configuration import router as configuration_router
 from api.routes.rag import router as rag_router
+from api.routes.chat import router as chat_router
 from api.routes.users import router as users_router
+from api.routes.stats import router as stats_router
+from api.routes.metrics import router as metrics_router
+from api.routes.debug import router as debug_router
 from workers.edge_worker import start_cameras, stop_cameras, cameras_health
 from workers.pipeline_worker import (
     stream_ingestion_worker,
@@ -39,6 +43,7 @@ from workers.pipeline_worker import (
     notification_worker,
 )
 from workers.rag_worker import rag_semantic_worker
+from workers.segment_vlm_worker import segment_vlm_worker
 from workers.snapshot_worker import snapshot_worker, clip_generation_worker
 from workers.cleanup_worker import cleanup_worker
 from workers.watchdog_worker import watchdog_worker
@@ -53,6 +58,10 @@ STATIC_DIR = Path(__file__).parent.parent.parent / "static"
 async def lifespan(app: FastAPI):
     # ── Start all background workers ──────────────────────────────────────
     loop = asyncio.get_running_loop()
+
+    # Ensure recording directories exist before any worker starts
+    Path(cfg.LOCAL_RECORDINGS_DIR).mkdir(parents=True, exist_ok=True)
+    Path(cfg.SEGMENT_TMP_DIR).mkdir(parents=True, exist_ok=True)
 
     # Bootstrap DB schema (idempotent)
     from db.connection import create_tables
@@ -72,6 +81,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(decision_engine_worker(),   name="decision-engine"),
         asyncio.create_task(notification_worker(),      name="notification"),
         asyncio.create_task(rag_semantic_worker(),      name="rag-semantic"),
+        asyncio.create_task(segment_vlm_worker(),       name="segment-vlm"),
         asyncio.create_task(snapshot_worker(),          name="snapshot-worker"),
         asyncio.create_task(clip_generation_worker(),   name="clip-generator"),
         asyncio.create_task(cleanup_worker(),           name="cleanup-worker"),
@@ -110,6 +120,10 @@ app.include_router(recordings_router)
 app.include_router(configuration_router)
 app.include_router(users_router)
 app.include_router(rag_router)
+app.include_router(chat_router)
+app.include_router(stats_router)
+app.include_router(metrics_router)
+app.include_router(debug_router)
 
 # ── Mount static & media files ────────────────────────────────────────────────
 if STATIC_DIR.exists():
@@ -117,11 +131,10 @@ if STATIC_DIR.exists():
 
 # Mount video recordings for playback (NVR Data Plane)
 # Serves /recordings/{cam_id}/*.ts
-RECORDINGS_PATH = Path(cfg.LOCAL_RECORDINGS_DIR)
-if RECORDINGS_PATH.exists():
-    app.mount("/recordings", StaticFiles(directory=str(RECORDINGS_PATH)), name="recordings")
-else:
-    logger.warning(f"⚠️ Recordings directory NOT found at {RECORDINGS_PATH}")
+# Create dir eagerly so the mount always succeeds (even if empty at startup)
+RECORDINGS_PATH = Path(cfg.LOCAL_RECORDINGS_DIR).resolve()
+RECORDINGS_PATH.mkdir(parents=True, exist_ok=True)
+app.mount("/recordings", StaticFiles(directory=str(RECORDINGS_PATH)), name="recordings")
 
 
 # ── Dashboard HTML ────────────────────────────────────────────────────────────
@@ -166,6 +179,14 @@ async def api_stats(_user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATO
     return get_stats()
 
 _START_TIME = time.time()
+
+
+def _resolve_detection_thumbnail_url(det) -> str | None:
+    if det.thumbnail_url:
+        return det.thumbnail_url
+    if not det.camera_id or not det.event_id:
+        return None
+    return f"/recordings/snapshots/{det.camera_id}/{det.camera_id}_{det.event_id}.jpg"
 
 
 # ── REST: Recordings + Incidents (from replay_api.py logic) ──────────────────
@@ -235,6 +256,7 @@ async def search_detections(
                 "dwell_sec":     d.dwell_sec,
                 "event_type":    d.event_type,
                 "detected_at":   d.detected_at.isoformat(),
+                "thumbnail_url": _resolve_detection_thumbnail_url(d),
                 "bbox":          {"x1": d.bbox_x1, "y1": d.bbox_y1, "x2": d.bbox_x2, "y2": d.bbox_y2},
             }
             for d in dets

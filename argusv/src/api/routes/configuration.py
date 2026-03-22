@@ -83,6 +83,18 @@ def _publish_config_update(update_type: str) -> None:
         logger.warning(f"Failed to publish config update ({update_type}): {e}")
 
 
+@router.get("/api/config/ui")
+def get_ui_config():
+    """
+    Public endpoint — no auth required.
+    Returns frontend-facing config that the dashboard needs before login,
+    such as the MediaMTX HLS base URL.
+    """
+    return {
+        "mediamtx_hls_base": cfg.MEDIAMTX_HLS_BASE,
+    }
+
+
 @router.get("/api/config/runtime")
 def get_runtime_config(
     db: Session = Depends(get_db),
