@@ -1,5 +1,5 @@
 # ArgusV — Production Compose
-# Images are pulled from DOCR (pushed by GitHub Actions).
+# Images are pulled from DigitalOcean Container Registry (pushed by GitHub Actions).
 # Secrets are loaded from /opt/argusv/.env.prod on the server.
 #
 # Usage on server:
@@ -96,6 +96,41 @@ services:
       MTX_HLSALLOWORIGIN: "*"
       MTX_LOGLEVEL: warn
       MTX_API: "yes"
+
+  # ── Demo RTSP stream simulators ─────────────────────────────────
+  # Remove these in production when real cameras are available.
+  # Upload demo.mp4 + demo2.mp4 to ARGUSV_VIDEOS_DIR on the server.
+  rtsp-sim-cam01:
+    image: jrottenberg/ffmpeg:5.1-alpine
+    platform: linux/amd64
+    container_name: argus-rtsp-sim-cam01
+    restart: unless-stopped
+    volumes:
+      - ${ARGUSV_VIDEOS_DIR:-./tmp}:/videos:ro
+    command: >
+      -re -stream_loop -1
+      -i "/videos/demo.mp4"
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -an -f rtsp -rtsp_transport tcp
+      rtsp://mediamtx:8554/cam-01
+    depends_on:
+      - mediamtx
+
+  rtsp-sim-cam02:
+    image: jrottenberg/ffmpeg:5.1-alpine
+    platform: linux/amd64
+    container_name: argus-rtsp-sim-cam02
+    restart: unless-stopped
+    volumes:
+      - ${ARGUSV_VIDEOS_DIR:-./tmp}:/videos:ro
+    command: >
+      -re -stream_loop -1
+      -i "/videos/demo2.mp4"
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -an -f rtsp -rtsp_transport tcp
+      rtsp://mediamtx:8554/cam-02
+    depends_on:
+      - mediamtx
 
 volumes:
   postgres_data:
