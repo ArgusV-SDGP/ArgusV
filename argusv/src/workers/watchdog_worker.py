@@ -105,8 +105,6 @@ async def _check_disk():
 
     # Use the same path as cleanup worker
     recordings_dir = cfg.LOCAL_RECORDINGS_DIR
-    if os.path.exists(recordings_dir):
-    recordings_dir = os.getenv("LOCAL_RECORDINGS_DIR", "/recordings")
     if not os.path.exists(recordings_dir):
         logger.debug("[Watchdog] Recordings dir %s not found — skipping disk check", recordings_dir)
         return

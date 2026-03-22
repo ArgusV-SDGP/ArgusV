@@ -63,6 +63,28 @@ def test_health_response_has_required_keys():
     assert "uptime_sec"      in body
 
 
+# ── Base route + unauthorized access ─────────────────────────────────────────
+
+def test_api_health_check():
+    response = client.get("/health")
+    assert response.status_code == 200
+
+
+def test_camera_list_unauthorized():
+    import auth.jwt_handler as jwt_mod
+    import config as cfg_mod
+    # Remove auth override and disable dev bypass so real auth enforces 401.
+    app.dependency_overrides.pop(get_current_user, None)
+    original_bypass = cfg_mod.DEV_AUTH_BYPASS
+    cfg_mod.DEV_AUTH_BYPASS = False
+    try:
+        response = client.get("/api/cameras")
+        assert response.status_code in (401, 403)
+    finally:
+        cfg_mod.DEV_AUTH_BYPASS = original_bypass
+        app.dependency_overrides[get_current_user] = lambda: _ADMIN
+
+
 # ── /api/stats ────────────────────────────────────────────────────────────────
 
 def test_stats_returns_200():
