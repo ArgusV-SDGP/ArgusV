@@ -100,11 +100,11 @@ jobs:
             doctl registry login --expiry-seconds 600
 
             # Pull only the backend image and restart it
-            docker compose -f docker-compose.prod.yml pull argusv
-            docker compose -f docker-compose.prod.yml up -d --no-deps argusv
+            docker compose -f docker-compose.prod.yml --env-file .env.prod pull argusv
+            docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --no-deps argusv
 
             # Reload nginx to pick up any config changes
-            docker compose -f docker-compose.prod.yml exec -T nginx nginx -s reload || true
+            docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T nginx nginx -s reload || true
 
             # Remove dangling images to free disk
             docker image prune -f
