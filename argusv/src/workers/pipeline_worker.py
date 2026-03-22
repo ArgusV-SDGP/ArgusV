@@ -287,65 +287,69 @@ async def _process_decision(event: dict):
     if embedding:
         logger.debug(f"[Pipeline] Embedded description ({len(embedding)} dims): {summary_text[:60]}...")
 
-    async with get_db_session() as db:
-        det_ts = datetime.fromtimestamp(event.get("timestamp", time.time()), timezone.utc).replace(tzinfo=None)
-        thumbnail_url = _build_snapshot_url(event.get("camera_id"), event.get("event_id"))
+    # DB write is best-effort — a failure must NOT block notification dispatch
+    try:
+        async with get_db_session() as db:
+            det_ts = datetime.fromtimestamp(event.get("timestamp", time.time()), timezone.utc).replace(tzinfo=None)
+            thumbnail_url = _build_snapshot_url(event.get("camera_id"), event.get("event_id"))
 
-        # Find the segment that covers this detection's timestamp
-        seg_result = await db.execute(
-            select(Segment.segment_id)
-            .where(Segment.camera_id == event.get("camera_id"))
-            .where(Segment.start_time <= det_ts)
-            .where(Segment.end_time >= det_ts)
-            .limit(1)
-        )
-        segment_id = seg_result.scalar_one_or_none()
+            # Find the segment that covers this detection's timestamp
+            seg_result = await db.execute(
+                select(Segment.segment_id)
+                .where(Segment.camera_id == event.get("camera_id"))
+                .where(Segment.start_time <= det_ts)
+                .where(Segment.end_time >= det_ts)
+                .limit(1)
+            )
+            segment_id = seg_result.scalar_one_or_none()
 
-        # Write detection row
-        det = Detection(
-            event_id     = event.get("event_id"),
-            camera_id    = event.get("camera_id"),
-            segment_id   = segment_id,
-            detected_at  = det_ts,
-            object_class = event.get("object_class", ""),
-            confidence   = event.get("confidence", 0.0),
-            zone_id      = event.get("zone_id"),
-            zone_name    = event.get("zone_name"),
-            event_type   = event.get("event_type"),
-            track_id     = event.get("track_id"),
-            dwell_sec    = event.get("dwell_sec", 0),
-            bbox_x1      = event.get("bbox", {}).get("x1"),
-            bbox_y1      = event.get("bbox", {}).get("y1"),
-            bbox_x2      = event.get("bbox", {}).get("x2"),
-            bbox_y2      = event.get("bbox", {}).get("y2"),
-            thumbnail_url= thumbnail_url,
-            is_threat    = is_threat,
-            threat_level = threat_level,
-            vlm_summary  = summary_text,
-            vlm_embedding= embedding,
-        )
-        db.add(det)
-
-        # Create incident for HIGH/MEDIUM threats and link detection → incident
-        if is_threat and threat_level in ("HIGH", "MEDIUM"):
-            inc = Incident(
+            # Write detection row
+            det = Detection(
+                event_id     = event.get("event_id"),
                 camera_id    = event.get("camera_id"),
+                segment_id   = segment_id,
+                detected_at  = det_ts,
+                object_class = event.get("object_class", ""),
+                confidence   = event.get("confidence", 0.0),
                 zone_id      = event.get("zone_id"),
                 zone_name    = event.get("zone_name"),
-                object_class = event.get("object_class"),
+                event_type   = event.get("event_type"),
+                track_id     = event.get("track_id"),
+                dwell_sec    = event.get("dwell_sec", 0),
+                bbox_x1      = event.get("bbox", {}).get("x1"),
+                bbox_y1      = event.get("bbox", {}).get("y1"),
+                bbox_x2      = event.get("bbox", {}).get("x2"),
+                bbox_y2      = event.get("bbox", {}).get("y2"),
+                thumbnail_url= thumbnail_url,
+                is_threat    = is_threat,
                 threat_level = threat_level,
-                summary      = vlm.get("summary"),
-                status       = "OPEN",
-                detected_at  = datetime.utcfromtimestamp(event.get("timestamp", time.time())),
-                metadata_json= event,
+                vlm_summary  = summary_text,
+                vlm_embedding= embedding,
             )
-            db.add(inc)
-            await db.flush()          # assign inc.incident_id before linking
-            det.incident_id = inc.incident_id
+            db.add(det)
 
-        await db.commit()
+            # Create incident for HIGH/MEDIUM threats and link detection → incident
+            if is_threat and threat_level in ("HIGH", "MEDIUM"):
+                inc = Incident(
+                    camera_id    = event.get("camera_id"),
+                    zone_id      = event.get("zone_id"),
+                    zone_name    = event.get("zone_name"),
+                    object_class = event.get("object_class"),
+                    threat_level = threat_level,
+                    summary      = vlm.get("summary"),
+                    status       = "OPEN",
+                    detected_at  = datetime.utcfromtimestamp(event.get("timestamp", time.time())),
+                    metadata_json= event,
+                )
+                db.add(inc)
+                await db.flush()          # assign inc.incident_id before linking
+                det.incident_id = inc.incident_id
 
-    # Forward to notification + actuation
+            await db.commit()
+    except Exception as e:
+        logger.error(f"[Decision] DB write failed (notification will still fire): {e}", exc_info=True)
+
+    # Always forward threats to notification + actuation regardless of DB outcome
     if is_threat:
         await bus.actions.put({
             **event,
