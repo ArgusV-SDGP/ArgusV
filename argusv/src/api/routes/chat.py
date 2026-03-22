@@ -1,25 +1,26 @@
 """
-api/routes/chat.py — Grounded RAG chat over video footage
-----------------------------------------------------------
+api/routes/chat.py — Agentic video-chat over surveillance footage
+-----------------------------------------------------------------
 POST /api/chat
 
-Pipeline:
-  1. Embed the user query (text-embedding-3-small)
-  2. Dual vector search with distance threshold:
-       a. Detection.vlm_embedding  — individual threat/detection moments
-       b. Segment.description_embedding — full 10-second chunk scene descriptions
-  3. Temporal fallback — if query contains time keywords (last hour, today…)
-     also pull recent items by timestamp so time-based questions always work
-  4. Merge, deduplicate by time window, sort chronologically
-  5. Build rich structured context for GPT-4o
-  6. Return natural language answer + source clips (thumbnail + video URLs)
+Agent loop:
+  1. Load session history from Redis (session_id → last 20 turns)
+  2. Call GPT-4o with tool definitions (up to MAX_TOOL_ROUNDS rounds)
+  3. Execute tool calls: search_detections, search_segments, get_incidents,
+     get_zone_activity, get_clip
+  4. Synthesize final answer from accumulated evidence
+  5. Save updated session back to Redis (TTL 2h)
+
+Returns: answer, sources, session_id, tool steps taken
 """
 
+import json
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+import uuid
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from urllib.parse import quote
 
 import httpx
@@ -30,17 +31,18 @@ from sqlalchemy.orm import Session
 import config as cfg
 from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
 from db.connection import get_db
-from db.models import Detection, Segment
+from db.models import Detection, Incident, Segment
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 logger = logging.getLogger("api.chat")
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-# Cosine distance above this = not relevant enough to include
 _DISTANCE_THRESHOLD = 0.72
+MAX_TOOL_ROUNDS = 3
+SESSION_TTL = 7200  # 2 hours
+SESSION_KEY = "argus:chat:session:{}"
 
-# Time windows for temporal fallback queries
 _TEMPORAL_PATTERNS: list[tuple[re.Pattern, timedelta]] = [
     (re.compile(r"\blast\s+hour\b",       re.I), timedelta(hours=1)),
     (re.compile(r"\blast\s+30\s*min",     re.I), timedelta(minutes=30)),
@@ -49,76 +51,195 @@ _TEMPORAL_PATTERNS: list[tuple[re.Pattern, timedelta]] = [
     (re.compile(r"\brecent(ly)?\b",       re.I), timedelta(hours=2)),
     (re.compile(r"\bjust now\b",          re.I), timedelta(minutes=15)),
     (re.compile(r"\bthis morning\b",      re.I), timedelta(hours=12)),
-    (re.compile(r"\bthis (after|even)",   re.I), timedelta(hours=8)),
 ]
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 
-_SYSTEM_PROMPT = """You are ArgusV, an AI-powered security analyst connected to a live surveillance system.
+_SYSTEM_PROMPT = """You are ArgusV, an AI security analyst with live access to a surveillance system.
 
-You are given footage context from real cameras. Each entry is either:
-- A DETECTION EVENT: a specific moment when a person/vehicle was detected, classified, and analysed
-- A VIDEO CLIP: a 10-second recorded chunk with a scene description
+You have tools to query detection events, video segments, incidents, and zone activity.
+Always use tools to gather evidence before answering — never make up events.
 
-Your response rules:
-1. Answer in clear, natural conversational language — not bullet points unless listing many events
-2. Always reference specific evidence: mention camera names, timestamps, and what was observed
-   Example: "At 14:32 on cam-01, a person was seen loitering near the gate for 45 seconds."
-3. If multiple cameras or time windows are relevant, summarise across them clearly
-4. For threats: state the threat level (HIGH/MEDIUM/LOW), what was observed, and what action was taken
-5. For scene questions ("what was happening"): describe the activity naturally
-6. If the context has no relevant footage, say: "No relevant footage was found for that query."
-7. Never invent events not in the context
-8. If asked about a time range, focus on events within that range
+Rules:
+- Use search_detections for specific threat/person/vehicle queries
+- Use search_segments for broader scene-level questions
+- Use get_incidents when asked about incidents or security events
+- Use get_zone_activity for zone-specific activity summaries
+- Use get_clip to retrieve a video URL for a specific moment
+- After gathering evidence, synthesize a clear, natural answer
+- Always cite camera names, timestamps, and exact observations
+- If no evidence is found, say so honestly
 """
+
+# ── OpenAI tool definitions ───────────────────────────────────────────────────
+
+_TOOLS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_detections",
+            "description": (
+                "Search detection events using semantic similarity. Use for specific threat queries, "
+                "person/vehicle lookups, or behaviour searches."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query":            {"type": "string",  "description": "Natural language search query"},
+                    "camera_id":        {"type": "string",  "description": "Restrict to this camera (optional)"},
+                    "zone_id":          {"type": "string",  "description": "Restrict to this zone ID (optional)"},
+                    "time_range_hours": {"type": "number",  "description": "Look back N hours (default 24)"},
+                    "threat_level":     {"type": "string",  "enum": ["HIGH", "MEDIUM", "LOW"], "description": "Filter by threat level (optional)"},
+                    "limit":            {"type": "integer", "description": "Max results (default 6)"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_segments",
+            "description": (
+                "Search recorded video segment descriptions. Use for scene-level queries about what "
+                "was happening in an area over a time window."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query":            {"type": "string",  "description": "Natural language search query"},
+                    "camera_id":        {"type": "string",  "description": "Restrict to this camera (optional)"},
+                    "time_range_hours": {"type": "number",  "description": "Look back N hours (default 24)"},
+                    "limit":            {"type": "integer", "description": "Max results (default 4)"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_incidents",
+            "description": "Retrieve recent security incidents from the database.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "camera_id":        {"type": "string"},
+                    "severity":         {"type": "string", "enum": ["HIGH", "MEDIUM", "LOW"]},
+                    "time_range_hours": {"type": "number", "description": "Look back N hours (default 24)"},
+                    "limit":            {"type": "integer", "description": "Max results (default 8)"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_zone_activity",
+            "description": "Summarise detection activity by zone. Use for zone-based questions.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "zone_id":          {"type": "string"},
+                    "camera_id":        {"type": "string"},
+                    "time_range_hours": {"type": "number", "description": "Look back N hours (default 24)"},
+                    "limit":            {"type": "integer", "description": "Max detections to fetch (default 20)"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_clip",
+            "description": "Get a video clip playlist URL for a specific moment on a camera.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "camera_id":   {"type": "string", "description": "Camera ID"},
+                    "timestamp":   {"type": "string", "description": "ISO 8601 timestamp"},
+                    "padding_sec": {"type": "integer", "description": "Seconds of padding each side (default 30)"},
+                },
+                "required": ["camera_id", "timestamp"],
+            },
+        },
+    },
+]
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
-class ChatHistoryItem(BaseModel):
-    role: str
-    content: str
-
-
 class ChatRequest(BaseModel):
     message: str
-    history: list[ChatHistoryItem] = []
-    camera_id: Optional[str] = None
-    zone_id: Optional[str] = None
-    limit: int = 10
+    session_id: Optional[str] = None
+    camera_id: Optional[str] = None  # global camera filter
+    limit: int = 8
 
 
 class SourceClip(BaseModel):
-    source_type: Literal["detection", "segment"]
+    source_type: Literal["detection", "segment", "incident"]
     id: str
     camera_id: str
     timestamp: str
-    end_time: Optional[str]
-    zone_name: Optional[str]
+    end_time: Optional[str] = None
+    zone_name: Optional[str] = None
     description: str
-    threat_level: Optional[str]
-    is_threat: Optional[bool]
-    thumbnail_url: Optional[str]
-    video_url: Optional[str]
-    playlist_url: Optional[str]
-    incident_id: Optional[str]
-    score: float   # similarity 0→1 (higher = more relevant)
+    threat_level: Optional[str] = None
+    is_threat: Optional[bool] = None
+    thumbnail_url: Optional[str] = None
+    video_url: Optional[str] = None
+    playlist_url: Optional[str] = None
+    incident_id: Optional[str] = None
+    score: float = 0.0
+
+
+class AgentStep(BaseModel):
+    tool: str
+    args: dict
+    result_summary: str
 
 
 class ChatResponse(BaseModel):
+    session_id: str
     answer: str
     sources: list[SourceClip]
     total_context_clips: int
+    steps: list[AgentStep]
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Session memory (Redis) ────────────────────────────────────────────────────
 
-def _detect_time_window(message: str) -> Optional[timedelta]:
-    """Return a timedelta if the message contains a temporal keyword."""
-    for pattern, delta in _TEMPORAL_PATTERNS:
-        if pattern.search(message):
-            return delta
-    return None
+async def _load_session(session_id: str) -> list[dict]:
+    try:
+        import redis.asyncio as aioredis
+        r = aioredis.from_url(cfg.REDIS_URL, decode_responses=True)
+        try:
+            raw = await r.get(SESSION_KEY.format(session_id))
+            if raw:
+                return json.loads(raw)
+        finally:
+            await r.aclose()
+    except Exception as e:
+        logger.debug(f"[Chat] Session load failed: {e}")
+    return []
 
+
+async def _save_session(session_id: str, messages: list[dict]) -> None:
+    # Keep last 20 turns (user+assistant pairs = 40 messages), trim older
+    trimmed = messages[-40:]
+    try:
+        import redis.asyncio as aioredis
+        r = aioredis.from_url(cfg.REDIS_URL, decode_responses=True)
+        try:
+            await r.setex(SESSION_KEY.format(session_id), SESSION_TTL, json.dumps(trimmed))
+        finally:
+            await r.aclose()
+    except Exception as e:
+        logger.debug(f"[Chat] Session save failed: {e}")
+
+
+# ── URL helpers ───────────────────────────────────────────────────────────────
 
 def _playlist_url(camera_id: str, ts: datetime, padding_sec: int = 30) -> str:
     s = (ts - timedelta(seconds=padding_sec)).isoformat()
@@ -133,54 +254,359 @@ def _seg_playlist_url(camera_id: str, start: datetime, end: datetime) -> str:
     )
 
 
-def _ts_label(iso: str) -> str:
-    """Format ISO timestamp as human-readable label for context."""
-    try:
-        dt = datetime.fromisoformat(iso)
-        return dt.strftime("%Y-%m-%d %H:%M:%S")
-    except Exception:
-        return iso
-
-
-def _build_context_block(sources: list[SourceClip]) -> str:
-    """
-    Build a structured, chronologically-sorted context block for the LLM.
-    Groups entries by camera so the model can reason per-camera easily.
-    """
-    if not sources:
-        return "No relevant footage found in the database."
-
-    # Sort chronologically
-    sorted_sources = sorted(sources, key=lambda s: s.timestamp)
-
-    lines: list[str] = []
-    for s in sorted_sources:
-        ts = _ts_label(s.timestamp)
-        cam = s.camera_id
-        zone = f", Zone: {s.zone_name}" if s.zone_name else ""
-        threat = f", Threat: {s.threat_level}" if s.threat_level else ""
-
-        if s.source_type == "detection":
-            kind = "DETECTION"
-            dwell = ""  # could add dwell_sec if we expose it
-        else:
-            kind = "VIDEO CLIP"
-            end = _ts_label(s.end_time) if s.end_time else ""
-            dwell = f" → {end}" if end else ""
-
-        relevance = f"(similarity: {s.score:.0%})"
-        lines.append(
-            f"[{kind} | Camera: {cam} | {ts}{dwell}{zone}{threat}] {relevance}\n"
-            f"  {s.description}"
-        )
-
-    return "\n\n".join(lines)
-
-
 def _seg_filename(minio_path: Optional[str]) -> str:
-    if not minio_path:
-        return ""
-    return Path(minio_path).name
+    return Path(minio_path).name if minio_path else ""
+
+
+# ── Tool execution ────────────────────────────────────────────────────────────
+
+async def _exec_search_detections(
+    args: dict,
+    db: Session,
+    cam_filter: Optional[str],
+) -> tuple[dict, list[SourceClip]]:
+    from genai.manager import embed_text
+
+    query = args.get("query", "")
+    limit = min(int(args.get("limit", 6)), 12)
+    hours = float(args.get("time_range_hours", 24))
+    threat_filter = args.get("threat_level")
+    zone_filter = args.get("zone_id")
+    cam = args.get("camera_id") or cam_filter
+    now = datetime.utcnow()
+    cutoff = now - timedelta(hours=hours)
+
+    sources: list[SourceClip] = []
+    items: list[dict] = []
+
+    vec = await embed_text(query)
+    if vec:
+        try:
+            dist_col = Detection.vlm_embedding.cosine_distance(vec).label("distance")
+            q = (
+                db.query(Detection, dist_col)
+                .filter(Detection.vlm_embedding.isnot(None))
+                .filter(Detection.vlm_summary.isnot(None))
+                .filter(dist_col <= _DISTANCE_THRESHOLD)
+                .filter(Detection.detected_at >= cutoff)
+            )
+            if cam:
+                q = q.filter(Detection.camera_id == cam)
+            if zone_filter:
+                q = q.filter(Detection.zone_id == zone_filter)
+            if threat_filter:
+                q = q.filter(Detection.threat_level == threat_filter)
+
+            for det, dist in q.order_by(dist_col).limit(limit).all():
+                score = round(max(0.0, 1.0 - float(dist)), 4)
+                purl = _playlist_url(det.camera_id, det.detected_at) if det.detected_at else None
+                src = SourceClip(
+                    source_type="detection",
+                    id=str(det.detection_id),
+                    camera_id=det.camera_id,
+                    timestamp=det.detected_at.isoformat() if det.detected_at else "",
+                    zone_name=det.zone_name,
+                    description=det.vlm_summary or "",
+                    threat_level=det.threat_level,
+                    is_threat=det.is_threat,
+                    thumbnail_url=det.thumbnail_url,
+                    playlist_url=purl,
+                    incident_id=str(det.incident_id) if det.incident_id else None,
+                    score=score,
+                )
+                sources.append(src)
+                items.append({
+                    "camera": det.camera_id,
+                    "zone": det.zone_name,
+                    "timestamp": det.detected_at.isoformat() if det.detected_at else "",
+                    "threat": det.threat_level,
+                    "summary": det.vlm_summary or "",
+                    "score": score,
+                })
+        except Exception as e:
+            logger.warning(f"[Chat] search_detections vector error: {e}")
+
+    # Temporal fallback if vector returned nothing
+    if not items:
+        q2 = (
+            db.query(Detection)
+            .filter(Detection.vlm_summary.isnot(None))
+            .filter(Detection.detected_at >= cutoff)
+        )
+        if cam:
+            q2 = q2.filter(Detection.camera_id == cam)
+        if threat_filter:
+            q2 = q2.filter(Detection.threat_level == threat_filter)
+        for det in q2.order_by(Detection.detected_at.desc()).limit(limit).all():
+            purl = _playlist_url(det.camera_id, det.detected_at) if det.detected_at else None
+            src = SourceClip(
+                source_type="detection",
+                id=str(det.detection_id),
+                camera_id=det.camera_id,
+                timestamp=det.detected_at.isoformat() if det.detected_at else "",
+                zone_name=det.zone_name,
+                description=det.vlm_summary or "",
+                threat_level=det.threat_level,
+                is_threat=det.is_threat,
+                thumbnail_url=det.thumbnail_url,
+                playlist_url=purl,
+                incident_id=str(det.incident_id) if det.incident_id else None,
+                score=0.5,
+            )
+            sources.append(src)
+            items.append({
+                "camera": det.camera_id,
+                "zone": det.zone_name,
+                "timestamp": det.detected_at.isoformat() if det.detected_at else "",
+                "threat": det.threat_level,
+                "summary": det.vlm_summary or "",
+                "score": 0.5,
+            })
+
+    result = {"count": len(items), "detections": items}
+    return result, sources
+
+
+async def _exec_search_segments(
+    args: dict,
+    db: Session,
+    cam_filter: Optional[str],
+) -> tuple[dict, list[SourceClip]]:
+    from genai.manager import embed_text
+
+    query = args.get("query", "")
+    limit = min(int(args.get("limit", 4)), 8)
+    hours = float(args.get("time_range_hours", 24))
+    cam = args.get("camera_id") or cam_filter
+    now = datetime.utcnow()
+    cutoff = now - timedelta(hours=hours)
+
+    sources: list[SourceClip] = []
+    items: list[dict] = []
+
+    vec = await embed_text(query)
+    if vec:
+        try:
+            dist_col = Segment.description_embedding.cosine_distance(vec).label("distance")
+            q = (
+                db.query(Segment, dist_col)
+                .filter(Segment.description_embedding.isnot(None))
+                .filter(Segment.description.isnot(None))
+                .filter(dist_col <= _DISTANCE_THRESHOLD)
+                .filter(Segment.start_time >= cutoff)
+            )
+            if cam:
+                q = q.filter(Segment.camera_id == cam)
+
+            for seg, dist in q.order_by(dist_col).limit(limit).all():
+                score = round(max(0.0, 1.0 - float(dist)), 4)
+                fname = _seg_filename(seg.minio_path)
+                purl = _seg_playlist_url(seg.camera_id, seg.start_time, seg.end_time) \
+                    if seg.start_time and seg.end_time else None
+                src = SourceClip(
+                    source_type="segment",
+                    id=str(seg.segment_id),
+                    camera_id=seg.camera_id,
+                    timestamp=seg.start_time.isoformat() if seg.start_time else "",
+                    end_time=seg.end_time.isoformat() if seg.end_time else None,
+                    description=seg.description or "",
+                    thumbnail_url=seg.thumbnail_url,
+                    video_url=f"/recordings/{seg.camera_id}/{fname}" if fname else None,
+                    playlist_url=purl,
+                    score=score,
+                )
+                sources.append(src)
+                items.append({
+                    "camera": seg.camera_id,
+                    "start": seg.start_time.isoformat() if seg.start_time else "",
+                    "end": seg.end_time.isoformat() if seg.end_time else "",
+                    "description": seg.description or "",
+                    "score": score,
+                })
+        except Exception as e:
+            logger.warning(f"[Chat] search_segments vector error: {e}")
+
+    result = {"count": len(items), "segments": items}
+    return result, sources
+
+
+def _exec_get_incidents(
+    args: dict,
+    db: Session,
+    cam_filter: Optional[str],
+) -> tuple[dict, list[SourceClip]]:
+    limit = min(int(args.get("limit", 8)), 20)
+    hours = float(args.get("time_range_hours", 24))
+    cam = args.get("camera_id") or cam_filter
+    severity = args.get("severity")
+    now = datetime.utcnow()
+    cutoff = now - timedelta(hours=hours)
+
+    q = db.query(Incident).filter(Incident.detected_at >= cutoff)
+    if cam:
+        q = q.filter(Incident.camera_id == cam)
+    if severity:
+        q = q.filter(Incident.threat_level == severity)
+
+    items: list[dict] = []
+    sources: list[SourceClip] = []
+
+    for inc in q.order_by(Incident.detected_at.desc()).limit(limit).all():
+        items.append({
+            "id": str(inc.incident_id),
+            "camera": inc.camera_id,
+            "zone": inc.zone_name,
+            "object_class": inc.object_class,
+            "threat": inc.threat_level,
+            "status": inc.status,
+            "summary": inc.summary,
+            "timestamp": inc.detected_at.isoformat() if inc.detected_at else "",
+        })
+        sources.append(SourceClip(
+            source_type="incident",
+            id=str(inc.incident_id),
+            camera_id=inc.camera_id or "",
+            timestamp=inc.detected_at.isoformat() if inc.detected_at else "",
+            zone_name=inc.zone_name,
+            description=inc.summary or "",
+            threat_level=inc.threat_level,
+            incident_id=str(inc.incident_id),
+            score=0.8,
+        ))
+
+    result = {"count": len(items), "incidents": items}
+    return result, sources
+
+
+def _exec_get_zone_activity(
+    args: dict,
+    db: Session,
+    cam_filter: Optional[str],
+) -> tuple[dict, list[SourceClip]]:
+    limit = min(int(args.get("limit", 20)), 50)
+    hours = float(args.get("time_range_hours", 24))
+    zone_filter = args.get("zone_id")
+    cam = args.get("camera_id") or cam_filter
+    now = datetime.utcnow()
+    cutoff = now - timedelta(hours=hours)
+
+    q = (
+        db.query(Detection)
+        .filter(Detection.detected_at >= cutoff)
+        .filter(Detection.zone_name.isnot(None))
+    )
+    if cam:
+        q = q.filter(Detection.camera_id == cam)
+    if zone_filter:
+        q = q.filter(Detection.zone_id == zone_filter)
+
+    # Group by zone
+    zone_stats: dict[str, dict[str, Any]] = {}
+    sources: list[SourceClip] = []
+
+    for det in q.order_by(Detection.detected_at.desc()).limit(limit).all():
+        zn = det.zone_name or "unknown"
+        if zn not in zone_stats:
+            zone_stats[zn] = {"camera": det.camera_id, "count": 0, "threats": 0, "last_seen": "", "samples": []}
+        zone_stats[zn]["count"] += 1
+        if det.is_threat:
+            zone_stats[zn]["threats"] += 1
+        if not zone_stats[zn]["last_seen"]:
+            zone_stats[zn]["last_seen"] = det.detected_at.isoformat() if det.detected_at else ""
+        if len(zone_stats[zn]["samples"]) < 2 and det.vlm_summary:
+            zone_stats[zn]["samples"].append(det.vlm_summary)
+            purl = _playlist_url(det.camera_id, det.detected_at) if det.detected_at else None
+            sources.append(SourceClip(
+                source_type="detection",
+                id=str(det.detection_id),
+                camera_id=det.camera_id,
+                timestamp=det.detected_at.isoformat() if det.detected_at else "",
+                zone_name=zn,
+                description=det.vlm_summary or "",
+                threat_level=det.threat_level,
+                is_threat=det.is_threat,
+                thumbnail_url=det.thumbnail_url,
+                playlist_url=purl,
+                score=0.6,
+            ))
+
+    zones_list = [{"zone": k, **v} for k, v in zone_stats.items()]
+    result = {"count": len(zones_list), "zones": zones_list}
+    return result, sources
+
+
+def _exec_get_clip(args: dict) -> tuple[dict, list[SourceClip]]:
+    cam = args.get("camera_id", "")
+    ts_str = args.get("timestamp", "")
+    padding = int(args.get("padding_sec", 30))
+
+    try:
+        ts = datetime.fromisoformat(ts_str)
+        purl = _playlist_url(cam, ts, padding)
+        result = {"camera_id": cam, "timestamp": ts_str, "playlist_url": purl}
+        src = SourceClip(
+            source_type="detection",
+            id=f"clip-{cam}-{ts_str}",
+            camera_id=cam,
+            timestamp=ts_str,
+            description=f"Clip around {ts_str} on {cam}",
+            playlist_url=purl,
+            score=1.0,
+        )
+        return result, [src]
+    except Exception as e:
+        return {"error": str(e)}, []
+
+
+async def _execute_tool(
+    name: str,
+    args: dict,
+    db: Session,
+    cam_filter: Optional[str],
+) -> tuple[dict, list[SourceClip]]:
+    try:
+        if name == "search_detections":
+            return await _exec_search_detections(args, db, cam_filter)
+        elif name == "search_segments":
+            return await _exec_search_segments(args, db, cam_filter)
+        elif name == "get_incidents":
+            return _exec_get_incidents(args, db, cam_filter)
+        elif name == "get_zone_activity":
+            return _exec_get_zone_activity(args, db, cam_filter)
+        elif name == "get_clip":
+            return _exec_get_clip(args)
+        else:
+            return {"error": f"Unknown tool: {name}"}, []
+    except Exception as e:
+        logger.error(f"[Chat] Tool '{name}' error: {e}", exc_info=True)
+        return {"error": str(e)}, []
+
+
+# ── Dedup helper ──────────────────────────────────────────────────────────────
+
+def _dedup_sources(sources: list[SourceClip]) -> list[SourceClip]:
+    """Remove duplicate sources (same id) and near-duplicate by camera+time window."""
+    seen_ids: set[str] = set()
+    deduped: list[SourceClip] = []
+    for src in sorted(sources, key=lambda s: s.score, reverse=True):
+        if src.id in seen_ids:
+            continue
+        seen_ids.add(src.id)
+        overlap = False
+        for kept in deduped:
+            if kept.camera_id != src.camera_id or kept.source_type != src.source_type:
+                continue
+            try:
+                t1 = datetime.fromisoformat(src.timestamp)
+                t2 = datetime.fromisoformat(kept.timestamp)
+                if abs((t1 - t2).total_seconds()) < 15:
+                    overlap = True
+                    break
+            except Exception as e:
+                logger.warning(f"[Chat] pgvector search unavailable: {e}")
+        if not overlap:
+            deduped.append(src)
+    return deduped
 
 
 # ── Endpoint ──────────────────────────────────────────────────────────────────
@@ -197,185 +623,108 @@ async def chat(
     if not cfg.OPENAI_API_KEY:
         raise HTTPException(503, "OPENAI_API_KEY not configured")
 
-    # ── 1. Embed query ────────────────────────────────────────────────────────
-    from genai.manager import embed_text
-    query_vector = await embed_text(payload.message)
-    if not query_vector:
-        raise HTTPException(503, "Embedding service unavailable — check OPENAI_API_KEY")
+    # ── Session ───────────────────────────────────────────────────────────────
+    session_id = payload.session_id or str(uuid.uuid4())
+    session_history = await _load_session(session_id)
 
-    half = max(2, payload.limit // 2)
-    time_window = _detect_time_window(payload.message)
-    now = datetime.utcnow()
-
-    sources: list[SourceClip] = []
-
-    # ── 2a. Detection vector search ───────────────────────────────────────────
-    try:
-        dist_col = Detection.vlm_embedding.cosine_distance(query_vector).label("distance")
-        q = (
-            db.query(Detection, dist_col)
-            .filter(Detection.vlm_embedding.isnot(None))
-            .filter(Detection.vlm_summary.isnot(None))
-            .filter(dist_col <= _DISTANCE_THRESHOLD)
-        )
-        if payload.camera_id:
-            q = q.filter(Detection.camera_id == payload.camera_id)
-        if payload.zone_id:
-            q = q.filter(Detection.zone_id == payload.zone_id)
-        if time_window:
-            q = q.filter(Detection.detected_at >= now - time_window)
-
-        for det, dist in q.order_by(dist_col).limit(half).all():
-            sources.append(SourceClip(
-                source_type="detection",
-                id=str(det.detection_id),
-                camera_id=det.camera_id,
-                timestamp=det.detected_at.isoformat() if det.detected_at else "",
-                end_time=None,
-                zone_name=det.zone_name,
-                description=det.vlm_summary or "",
-                threat_level=det.threat_level,
-                is_threat=det.is_threat,
-                thumbnail_url=det.thumbnail_url,
-                video_url=None,
-                playlist_url=_playlist_url(det.camera_id, det.detected_at) if det.detected_at else None,
-                incident_id=str(det.incident_id) if det.incident_id else None,
-                score=round(max(0.0, 1.0 - float(dist)), 4),
-            ))
-    except Exception as e:
-        logger.warning(f"[Chat] Detection vector search failed: {e}")
-
-    # ── 2b. Segment vector search ─────────────────────────────────────────────
-    try:
-        seg_dist = Segment.description_embedding.cosine_distance(query_vector).label("distance")
-        sq = (
-            db.query(Segment, seg_dist)
-            .filter(Segment.description_embedding.isnot(None))
-            .filter(Segment.description.isnot(None))
-            .filter(seg_dist <= _DISTANCE_THRESHOLD)
-        )
-        if payload.camera_id:
-            sq = sq.filter(Segment.camera_id == payload.camera_id)
-        if time_window:
-            sq = sq.filter(Segment.start_time >= now - time_window)
-
-        for seg, dist in sq.order_by(seg_dist).limit(half).all():
-            fname = _seg_filename(seg.minio_path)
-            sources.append(SourceClip(
-                source_type="segment",
-                id=str(seg.segment_id),
-                camera_id=seg.camera_id,
-                timestamp=seg.start_time.isoformat() if seg.start_time else "",
-                end_time=seg.end_time.isoformat() if seg.end_time else None,
-                zone_name=None,
-                description=seg.description or "",
-                threat_level=None,
-                is_threat=None,
-                thumbnail_url=seg.thumbnail_url,
-                video_url=f"/recordings/{seg.camera_id}/{fname}" if fname else None,
-                playlist_url=_seg_playlist_url(seg.camera_id, seg.start_time, seg.end_time)
-                             if seg.start_time and seg.end_time else None,
-                incident_id=None,
-                score=round(max(0.0, 1.0 - float(dist)), 4),
-            ))
-    except Exception as e:
-        logger.warning(f"[Chat] Segment vector search failed: {e}")
-
-    # ── 3. Temporal fallback — if time-based query has no vector hits ─────────
-    if time_window and len(sources) < 3:
-        try:
-            cutoff = now - time_window
-            recent_dets = (
-                db.query(Detection)
-                .filter(Detection.detected_at >= cutoff)
-                .filter(Detection.vlm_summary.isnot(None))
-            )
-            if payload.camera_id:
-                recent_dets = recent_dets.filter(Detection.camera_id == payload.camera_id)
-            for det in recent_dets.order_by(Detection.detected_at.desc()).limit(4).all():
-                det_id = str(det.detection_id)
-                if any(s.id == det_id for s in sources):
-                    continue
-                sources.append(SourceClip(
-                    source_type="detection",
-                    id=det_id,
-                    camera_id=det.camera_id,
-                    timestamp=det.detected_at.isoformat() if det.detected_at else "",
-                    end_time=None,
-                    zone_name=det.zone_name,
-                    description=det.vlm_summary or "",
-                    threat_level=det.threat_level,
-                    is_threat=det.is_threat,
-                    thumbnail_url=det.thumbnail_url,
-                    video_url=None,
-                    playlist_url=_playlist_url(det.camera_id, det.detected_at) if det.detected_at else None,
-                    incident_id=str(det.incident_id) if det.incident_id else None,
-                    score=0.5,  # time-based fallback, no vector score
-                ))
-        except Exception as e:
-            logger.warning(f"[Chat] Temporal fallback failed: {e}")
-
-    # ── 4. Deduplicate overlapping detection + segment from same window ───────
-    # Keep the higher-score entry when detection and segment overlap within 15s
-    deduped: list[SourceClip] = []
-    for src in sorted(sources, key=lambda s: s.score, reverse=True):
-        overlap = False
-        for kept in deduped:
-            if kept.camera_id != src.camera_id:
-                continue
-            try:
-                t1 = datetime.fromisoformat(src.timestamp)
-                t2 = datetime.fromisoformat(kept.timestamp)
-                if abs((t1 - t2).total_seconds()) < 15:
-                    overlap = True
-                    break
-            except Exception:
-                pass
-        if not overlap:
-            deduped.append(src)
-
-    # Sort final list chronologically for clean context
-    final = sorted(deduped[:payload.limit], key=lambda s: s.timestamp)
-
-    # ── 5. Build LLM context block ────────────────────────────────────────────
-    context_block = _build_context_block(final)
-
-    # ── 6. Call GPT-4o ────────────────────────────────────────────────────────
+    # ── Build initial message list ────────────────────────────────────────────
     messages: list[dict] = [{"role": "system", "content": _SYSTEM_PROMPT}]
+    messages.extend(session_history[-40:])  # last 20 pairs
+    messages.append({"role": "user", "content": payload.message})
 
-    for turn in payload.history[-10:]:
-        if turn.role in {"user", "assistant"}:
-            messages.append({"role": turn.role, "content": turn.content})
+    headers = {
+        "Authorization": f"Bearer {cfg.OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
 
-    messages.append({"role": "user", "content": (
-        f"--- Footage Context ---\n{context_block}\n\n"
-        f"--- Question ---\n{payload.message}"
-    )})
+    all_sources: list[SourceClip] = []
+    steps: list[AgentStep] = []
 
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {cfg.OPENAI_API_KEY}",
-                         "Content-Type": "application/json"},
-                json={
-                    "model": cfg.VLM_MODEL,
-                    "messages": messages,
-                    "max_tokens": 600,
-                    "temperature": 0.2,
-                },
-            )
-            resp.raise_for_status()
-            answer = resp.json()["choices"][0]["message"]["content"].strip()
-    except httpx.HTTPStatusError as e:
-        logger.error(f"[Chat] OpenAI error: {e.response.text}")
-        raise HTTPException(502, f"LLM request failed: {e.response.status_code}")
-    except Exception as e:
-        logger.error(f"[Chat] Unexpected error: {e}", exc_info=True)
-        raise HTTPException(500, "Chat request failed")
+    # ── Agent loop ────────────────────────────────────────────────────────────
+    answer = "I was unable to retrieve any information. Please try again."
+
+    async with httpx.AsyncClient(timeout=45) as client:
+        for round_num in range(MAX_TOOL_ROUNDS + 1):
+            use_tools = round_num < MAX_TOOL_ROUNDS
+
+            body: dict = {
+                "model": cfg.VLM_MODEL,
+                "messages": messages,
+                "max_tokens": 800,
+                "temperature": 0.2,
+            }
+            if use_tools:
+                body["tools"] = _TOOLS
+                body["tool_choice"] = "auto"
+
+            try:
+                resp = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers=headers,
+                    json=body,
+                )
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                logger.error(f"[Chat] OpenAI error: {e.response.text}")
+                raise HTTPException(502, f"LLM request failed: {e.response.status_code}")
+            except Exception as e:
+                logger.error(f"[Chat] Unexpected error: {e}", exc_info=True)
+                raise HTTPException(500, "Chat request failed")
+
+            choice = resp.json()["choices"][0]
+            msg = choice["message"]
+            finish_reason = choice.get("finish_reason", "stop")
+
+            # No tool calls → final answer
+            if not msg.get("tool_calls") or finish_reason == "stop":
+                answer = (msg.get("content") or "").strip()
+                # Append assistant turn for session history
+                messages.append({"role": "assistant", "content": answer})
+                break
+
+            # Execute tool calls
+            messages.append(msg)  # assistant message with tool_calls
+
+            for tc in msg["tool_calls"]:
+                fn_name = tc["function"]["name"]
+                try:
+                    fn_args = json.loads(tc["function"]["arguments"])
+                except json.JSONDecodeError:
+                    fn_args = {}
+
+                tool_result, clips = await _execute_tool(fn_name, fn_args, db, payload.camera_id)
+                all_sources.extend(clips)
+
+                # Build step summary
+                count = tool_result.get("count", len(clips))
+                step_summary = f"Found {count} result(s)"
+                if "error" in tool_result:
+                    step_summary = f"Error: {tool_result['error']}"
+                steps.append(AgentStep(tool=fn_name, args=fn_args, result_summary=step_summary))
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": json.dumps(tool_result),
+                })
+
+    # ── Deduplicate and limit sources ─────────────────────────────────────────
+    final_sources = sorted(
+        _dedup_sources(all_sources)[:payload.limit],
+        key=lambda s: s.timestamp,
+    )
+
+    # ── Save session (user + assistant turns only, no tool noise) ─────────────
+    new_history = session_history + [
+        {"role": "user", "content": payload.message},
+        {"role": "assistant", "content": answer},
+    ]
+    await _save_session(session_id, new_history)
 
     return ChatResponse(
+        session_id=session_id,
         answer=answer,
-        sources=final,
-        total_context_clips=len(final),
+        sources=final_sources,
+        total_context_clips=len(final_sources),
+        steps=steps,
     )

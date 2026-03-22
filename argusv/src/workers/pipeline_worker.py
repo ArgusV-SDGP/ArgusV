@@ -107,17 +107,6 @@ async def stream_ingestion_worker():
                 cfg.GENAI_PROVIDER != "disabled"
             )
 
-            # Rate limit: suppress repeat VLM + Slack for same object+zone within TTL window
-            if needs_vlm:
-                cam   = event.get("camera_id", "")
-                zone  = event.get("zone_name", "")
-                obj   = event.get("object_class", "")
-                if await _is_rate_limited(cam, zone, obj):
-                    logger.debug(f"[Pipeline] Rate limited: {obj} in '{zone}' on {cam}")
-                    needs_vlm = False
-                else:
-                    await _set_rate_limit(cam, zone, obj)
-
             # Always push to WebSocket immediately (fast alert path)
             alert = {
                 **event,
@@ -134,11 +123,11 @@ async def stream_ingestion_worker():
                 # if it's a high-confidence start or loiter
                 if event_type in ("START", "LOITERING", "DETECTED") and confidence >= cfg.CONF_THRESHOLD:
                      await bus.vlm_results.put({
-                         **event, 
+                         **event,
                          "vlm": {
                              "threat_level": "LOW",
                              "is_threat": False,
-                             "summary": "Motion detected (No VLM analysis)"
+                             "summary": None,   # no VLM ran — keep null so RAG ignores it
                          }
                      })
                 
@@ -221,23 +210,8 @@ async def _call_openai(event: dict) -> dict:
         "Content-Type":  "application/json",
     }
 
-    zone_name    = event.get("zone_name", "")
-    object_class = event.get("object_class", "")
-    dwell_sec    = event.get("dwell_sec", 0)
-    event_type   = event.get("event_type", "")
-
-    triage_prompt = (
-        f"Security camera alert: {object_class} detected in '{zone_name}'. "
-        f"Event type: {event_type}. Dwell time: {dwell_sec}s. "
-        "Is this worth escalating? Reply ONE word: YES or NO."
-    )
-
-    full_prompt = (
-        f"You are a security analyst reviewing camera footage. "
-        f"A {object_class} was detected in '{zone_name}' (dwell: {dwell_sec}s, type: {event_type}). "
-        "Analyse this scene. Respond JSON: "
-        '{"threat_level":"HIGH|MEDIUM|LOW","is_threat":true|false,"summary":"<1 sentence>","recommended_action":"ALERT|MONITOR|IGNORE"}'
-    )
+    from genai.manager import _build_prompts_async
+    triage_prompt, full_prompt = await _build_prompts_async(event)
 
     async with httpx.AsyncClient(timeout=30) as client:
         # Triage call (cheap)
@@ -329,65 +303,69 @@ async def _process_decision(event: dict):
     if embedding:
         logger.debug(f"[Pipeline] Embedded description ({len(embedding)} dims): {summary_text[:60]}...")
 
-    async with get_db_session() as db:
-        det_ts = datetime.fromtimestamp(event.get("timestamp", time.time()), timezone.utc).replace(tzinfo=None)
-        thumbnail_url = _build_snapshot_url(event.get("camera_id"), event.get("event_id"))
+    # DB write is best-effort — a failure must NOT block notification dispatch
+    try:
+        async with get_db_session() as db:
+            det_ts = datetime.fromtimestamp(event.get("timestamp", time.time()), timezone.utc).replace(tzinfo=None)
+            thumbnail_url = _build_snapshot_url(event.get("camera_id"), event.get("event_id"))
 
-        # Find the segment that covers this detection's timestamp
-        seg_result = await db.execute(
-            select(Segment.segment_id)
-            .where(Segment.camera_id == event.get("camera_id"))
-            .where(Segment.start_time <= det_ts)
-            .where(Segment.end_time >= det_ts)
-            .limit(1)
-        )
-        segment_id = seg_result.scalar_one_or_none()
+            # Find the segment that covers this detection's timestamp
+            seg_result = await db.execute(
+                select(Segment.segment_id)
+                .where(Segment.camera_id == event.get("camera_id"))
+                .where(Segment.start_time <= det_ts)
+                .where(Segment.end_time >= det_ts)
+                .limit(1)
+            )
+            segment_id = seg_result.scalar_one_or_none()
 
-        # Write detection row
-        det = Detection(
-            event_id     = event.get("event_id"),
-            camera_id    = event.get("camera_id"),
-            segment_id   = segment_id,
-            detected_at  = det_ts,
-            object_class = event.get("object_class", ""),
-            confidence   = event.get("confidence", 0.0),
-            zone_id      = event.get("zone_id"),
-            zone_name    = event.get("zone_name"),
-            event_type   = event.get("event_type"),
-            track_id     = event.get("track_id"),
-            dwell_sec    = event.get("dwell_sec", 0),
-            bbox_x1      = event.get("bbox", {}).get("x1"),
-            bbox_y1      = event.get("bbox", {}).get("y1"),
-            bbox_x2      = event.get("bbox", {}).get("x2"),
-            bbox_y2      = event.get("bbox", {}).get("y2"),
-            thumbnail_url= thumbnail_url,
-            is_threat    = is_threat,
-            threat_level = threat_level,
-            vlm_summary  = summary_text,
-            vlm_embedding= embedding,
-        )
-        db.add(det)
-
-        # Create incident for HIGH/MEDIUM threats and link detection → incident
-        if is_threat and threat_level in ("HIGH", "MEDIUM"):
-            inc = Incident(
+            # Write detection row
+            det = Detection(
+                event_id     = event.get("event_id"),
                 camera_id    = event.get("camera_id"),
+                segment_id   = segment_id,
+                detected_at  = det_ts,
+                object_class = event.get("object_class", ""),
+                confidence   = event.get("confidence", 0.0),
                 zone_id      = event.get("zone_id"),
                 zone_name    = event.get("zone_name"),
-                object_class = event.get("object_class"),
+                event_type   = event.get("event_type"),
+                track_id     = event.get("track_id"),
+                dwell_sec    = event.get("dwell_sec", 0),
+                bbox_x1      = event.get("bbox", {}).get("x1"),
+                bbox_y1      = event.get("bbox", {}).get("y1"),
+                bbox_x2      = event.get("bbox", {}).get("x2"),
+                bbox_y2      = event.get("bbox", {}).get("y2"),
+                thumbnail_url= thumbnail_url,
+                is_threat    = is_threat,
                 threat_level = threat_level,
-                summary      = vlm.get("summary"),
-                status       = "OPEN",
-                detected_at  = datetime.utcfromtimestamp(event.get("timestamp", time.time())),
-                metadata_json= event,
+                vlm_summary  = summary_text,
+                vlm_embedding= embedding,
             )
-            db.add(inc)
-            await db.flush()          # assign inc.incident_id before linking
-            det.incident_id = inc.incident_id
+            db.add(det)
 
-        await db.commit()
+            # Create incident for HIGH/MEDIUM threats and link detection → incident
+            if is_threat and threat_level in ("HIGH", "MEDIUM"):
+                inc = Incident(
+                    camera_id    = event.get("camera_id"),
+                    zone_id      = event.get("zone_id"),
+                    zone_name    = event.get("zone_name"),
+                    object_class = event.get("object_class"),
+                    threat_level = threat_level,
+                    summary      = vlm.get("summary"),
+                    status       = "OPEN",
+                    detected_at  = datetime.utcfromtimestamp(event.get("timestamp", time.time())),
+                    metadata_json= event,
+                )
+                db.add(inc)
+                await db.flush()          # assign inc.incident_id before linking
+                det.incident_id = inc.incident_id
 
-    # Forward to notification + actuation
+            await db.commit()
+    except Exception as e:
+        logger.error(f"[Decision] DB write failed (notification will still fire): {e}", exc_info=True)
+
+    # Always forward threats to notification + actuation regardless of DB outcome
     if is_threat:
         await bus.actions.put({
             **event,
@@ -425,12 +403,62 @@ async def notification_worker():
     while True:
         action: dict = await bus.actions.get()
         try:
-            if action.get("action_type") == "ALERT" and cfg.SLACK_BOT_TOKEN:
-                await _send_slack(action)
+            if action.get("action_type") == "ALERT":
+                await _dispatch_notifications(action)
         except Exception as e:
             logger.error(f"[Notification] Error: {e}", exc_info=True)
         finally:
             bus.actions.task_done()
+
+
+async def _dispatch_notifications(action: dict):
+    """Dispatch notifications per DB-configured NotificationRule rows."""
+    from db.connection import get_db_session
+    from db.models import NotificationRule
+    from sqlalchemy import select
+
+    threat_level = action.get("threat_level", "LOW")
+    event_zone_id = str(action.get("zone_id", "")) if action.get("zone_id") else None
+    dispatched = False
+
+    try:
+        async with get_db_session() as db:
+            result = await db.execute(
+                select(NotificationRule).where(NotificationRule.severity == threat_level)
+            )
+            rules = result.scalars().all()
+    except Exception as e:
+        logger.warning(f"[Notification] DB query failed, falling back to env config: {e}")
+        rules = []
+
+    for rule in rules:
+        # "global" rules match all zones; zone-specific rules match only the event's zone
+        if rule.zone_id != "global" and rule.zone_id != event_zone_id:
+            continue
+
+        rule_cfg = rule.config or {}
+        for channel in (rule.channels or []):
+            try:
+                if channel == "telegram" and cfg.TELEGRAM_BOT_TOKEN and cfg.TELEGRAM_CHAT_ID:
+                    await _send_telegram(action)
+                    dispatched = True
+                elif channel == "slack" and cfg.SLACK_BOT_TOKEN:
+                    await _send_slack(action)
+                    dispatched = True
+                elif channel == "webhook":
+                    webhook_url = rule_cfg.get("webhook_url")
+                    if webhook_url:
+                        await _send_webhook(action, webhook_url)
+                        dispatched = True
+            except Exception as e:
+                logger.error(f"[Notification] Channel '{channel}' error: {e}")
+
+    # Fallback: no DB rules matched → use env-based credentials if available
+    if not dispatched:
+        if cfg.TELEGRAM_BOT_TOKEN and cfg.TELEGRAM_CHAT_ID:
+            await _send_telegram(action)
+        elif cfg.SLACK_BOT_TOKEN:
+            await _send_slack(action)
 
 
 async def _send_slack(action: dict):
@@ -448,3 +476,45 @@ async def _send_slack(action: dict):
             json={"channel": cfg.SLACK_CHANNEL_ID, "text": text},
         )
     logger.info(f"[Slack] Sent alert: {threat} in {zone}")
+
+
+async def _send_webhook(action: dict, url: str):
+    import httpx
+    payload = {
+        "threat_level":  action.get("threat_level"),
+        "zone_name":     action.get("zone_name"),
+        "object_class":  action.get("object_class"),
+        "camera_id":     action.get("camera_id"),
+        "summary":       action.get("summary"),
+        "timestamp":     action.get("timestamp"),
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(url, json=payload)
+    logger.info(f"[Webhook] Sent alert to {url}: {resp.status_code}")
+
+
+async def _send_telegram(action: dict):
+    import httpx
+    import base64
+    threat  = action.get("threat_level", "?")
+    zone    = action.get("zone_name", "?")
+    obj     = action.get("object_class", "?")
+    summary = action.get("summary", "")
+    emoji   = {"HIGH": "🔴", "MEDIUM": "🟠", "LOW": "🟡"}.get(threat, "⚪")
+    caption = f"{emoji} *{threat} THREAT* — {obj.capitalize()} in *{zone}*\n{summary}"
+
+    frame_b64 = action.get("trigger_frame_b64")
+    async with httpx.AsyncClient(timeout=30) as client:
+        if frame_b64:
+            photo_bytes = base64.b64decode(frame_b64)
+            await client.post(
+                f"https://api.telegram.org/bot{cfg.TELEGRAM_BOT_TOKEN}/sendPhoto",
+                data={"chat_id": cfg.TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "Markdown"},
+                files={"photo": ("snapshot.jpg", photo_bytes, "image/jpeg")},
+            )
+        else:
+            await client.post(
+                f"https://api.telegram.org/bot{cfg.TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": cfg.TELEGRAM_CHAT_ID, "text": caption, "parse_mode": "Markdown"},
+            )
+    logger.info(f"[Telegram] Sent alert: {threat} in {zone}")

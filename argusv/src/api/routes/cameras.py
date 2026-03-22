@@ -39,19 +39,25 @@ class CameraPatch(BaseModel):
     status: Optional[str] = None
     resolution: Optional[str] = None
     fps: Optional[int] = None
+    # Per-camera detection overrides. Set to {} to clear (use global defaults).
+    # Keys: detect_classes {"0":"person"}, conf_threshold, detect_fps,
+    #       use_motion_gate, motion_threshold, loiter_sec,
+    #       track_update_sec, track_evict_sec
+    detect_config: Optional[dict] = None
 
 
 def _serialize_camera(c: Camera) -> dict[str, Any]:
     return {
-        "camera_id": c.camera_id,
-        "name": c.name,
-        "rtsp_url": c.rtsp_url,
-        "zone_id": str(c.zone_id) if c.zone_id else None,
-        "status": c.status,
-        "resolution": c.resolution,
-        "fps": c.fps,
-        "created_at": c.created_at.isoformat() if c.created_at else None,
-        "last_seen": c.last_seen.isoformat() if c.last_seen else None,
+        "camera_id":     c.camera_id,
+        "name":          c.name,
+        "rtsp_url":      c.rtsp_url,
+        "zone_id":       str(c.zone_id) if c.zone_id else None,
+        "status":        c.status,
+        "resolution":    c.resolution,
+        "fps":           c.fps,
+        "created_at":    c.created_at.isoformat() if c.created_at else None,
+        "last_seen":     c.last_seen.isoformat() if c.last_seen else None,
+        "detect_config": c.detect_config,  # null = using global defaults
     }
 
 

@@ -16,7 +16,6 @@ Channels:
 import asyncio
 from dataclasses import dataclass, field
 
-
 @dataclass
 class EventBus:
     raw_detections : asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=1000))

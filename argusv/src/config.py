@@ -59,8 +59,7 @@ else:
 
 DETECT_FPS       = int(os.getenv("DETECT_FPS",       "5"))
 CONF_THRESHOLD   = float(os.getenv("CONF_THRESHOLD", "0.45"))
-YOLO_MODEL       = os.getenv("YOLO_MODEL",           "yolov8n.pt")
-DETECT_CLASSES   = {0: "person", 2: "car", 7: "truck"}
+YOLO_MODEL       = os.getenv("YOLO_MODEL",           "yolo11m.pt")
 USE_MOTION_GATE  = os.getenv("USE_MOTION_GATE",  "true").lower() == "true"
 MOTION_THRESHOLD = float(os.getenv("MOTION_THRESHOLD", "0.003"))
 USE_TRACKER      = os.getenv("USE_TRACKER",      "true").lower() == "true"
@@ -70,6 +69,75 @@ TRACK_EVICT_SEC  = int(os.getenv("TRACK_EVICT_SEC",      "5"))
 ZONE_RESYNC_SEC  = int(os.getenv("ZONE_RESYNC_SEC",      "60"))
 EMBED_FRAME      = os.getenv("EMBED_FRAME",   "true").lower() == "true"
 FRAME_JPEG_Q     = int(os.getenv("FRAME_JPEG_Q", "60"))
+
+# ── COCO-80 class map ────────────────────────────────────────────────────────
+# Full lookup table for both validation and shorthand resolution.
+# DETECT_CLASSES is the active filter — only these class IDs are forwarded.
+COCO_CLASS_MAP: dict[int, str] = {
+    0:"person",       1:"bicycle",      2:"car",          3:"motorcycle",
+    4:"airplane",     5:"bus",          6:"train",        7:"truck",
+    8:"boat",         9:"traffic light",10:"fire hydrant",11:"stop sign",
+    12:"parking meter",13:"bench",      14:"bird",        15:"cat",
+    16:"dog",         17:"horse",       18:"sheep",       19:"cow",
+    20:"elephant",    21:"bear",        22:"zebra",       23:"giraffe",
+    24:"backpack",    25:"umbrella",    26:"handbag",     27:"tie",
+    28:"suitcase",    29:"frisbee",     30:"skis",        31:"snowboard",
+    32:"sports ball", 33:"kite",        34:"baseball bat",35:"baseball glove",
+    36:"skateboard",  37:"surfboard",   38:"tennis racket",39:"bottle",
+    40:"wine glass",  41:"cup",         42:"fork",        43:"knife",
+    44:"spoon",       45:"bowl",        46:"banana",      47:"apple",
+    48:"sandwich",    49:"orange",      50:"broccoli",    51:"carrot",
+    52:"hot dog",     53:"pizza",       54:"donut",       55:"cake",
+    56:"chair",       57:"couch",       58:"potted plant",59:"bed",
+    60:"dining table",61:"toilet",      62:"tv",          63:"laptop",
+    64:"mouse",       65:"remote",      66:"keyboard",    67:"cell phone",
+    68:"microwave",   69:"oven",        70:"toaster",     71:"sink",
+    72:"refrigerator",73:"book",        74:"clock",       75:"vase",
+    76:"scissors",    77:"teddy bear",  78:"hair drier",  79:"toothbrush",
+}
+COCO_NAME_TO_ID: dict[str, int] = {v: k for k, v in COCO_CLASS_MAP.items()}
+
+
+def _parse_detect_classes() -> dict[int, str]:
+    """
+    Parse DETECT_CLASSES from env.
+
+    Pattern A (explicit ID:label pairs — takes precedence):
+      DETECT_CLASSES=0:person,2:car,7:truck,5:bus
+
+    Pattern B (label names resolved via COCO_CLASS_MAP):
+      DETECT_CLASS_NAMES=person,car,truck,bus
+
+    Falls back to person+car+truck if neither is set.
+    """
+    explicit = os.getenv("DETECT_CLASSES", "")
+    if explicit:
+        result: dict[int, str] = {}
+        for pair in explicit.split(","):
+            pair = pair.strip()
+            if ":" in pair:
+                id_str, label = pair.split(":", 1)
+                try:
+                    result[int(id_str.strip())] = label.strip()
+                except ValueError:
+                    pass
+        if result:
+            return result
+
+    names = os.getenv("DETECT_CLASS_NAMES", "")
+    if names:
+        result = {}
+        for name in names.split(","):
+            name = name.strip().lower()
+            if name in COCO_NAME_TO_ID:
+                result[COCO_NAME_TO_ID[name]] = name
+        if result:
+            return result
+
+    return {0: "person", 2: "car", 7: "truck"}
+
+
+DETECT_CLASSES: dict[int, str] = _parse_detect_classes()
 
 
 
@@ -104,6 +172,11 @@ GEMINI_API_KEY          = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL            = os.getenv("GEMINI_MODEL",        "gemini-2.0-flash")
 GEMINI_VISION_MODEL     = os.getenv("GEMINI_VISION_MODEL", "gemini-1.5-pro")
 
+# Segment VLM provider — who describes completed video segments for RAG indexing
+# "gemini"  → uploads full .ts video to Gemini File API (native video understanding)
+# "openai"  → extracts FRAMES_PER_SEGMENT frames and sends to GPT-4o (default)
+SEGMENT_VLM_PROVIDER    = os.getenv("SEGMENT_VLM_PROVIDER", "openai")
+
 # Ollama (local)
 OLLAMA_BASE_URL  = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 OLLAMA_MODEL     = os.getenv("OLLAMA_MODEL",    "llava")   # vision-capable model
@@ -120,6 +193,8 @@ SLACK_BOT_TOKEN  = os.getenv("SLACK_BOT_TOKEN",  "")
 SLACK_CHANNEL_ID = os.getenv("SLACK_CHANNEL_ID", "#argus-alerts")
 RATE_LIMIT_TTL   = int(os.getenv("RATE_LIMIT_TTL_SEC", "300"))
 
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID",   "")
 
 
 # ── MQTT / Actuation ────────────────────────────────────────────────────────── #
