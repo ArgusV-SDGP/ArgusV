@@ -127,6 +127,69 @@ def debug_overview(
     }
 
 
+@router.post("/force-pipeline-alert")
+async def force_pipeline_alert(
+    threat_level: str = "HIGH",
+    object_class: str = "person",
+    zone_name: str = "Entrance",
+    camera_id: Optional[str] = None,
+):
+    """
+    Inject a fake event into bus.vlm_results so it travels through the FULL
+    normal pipeline: decision_engine_worker (DB write) -> notification_worker.
+    Unlike /test-notification (which skips to bus.actions), this creates real
+    Detection + Incident rows and triggers notifications the same way a live
+    camera detection would.
+
+    camera_id: optional — if omitted, the first registered camera in the DB is used.
+    """
+    from bus import bus
+    from db.connection import get_db_session
+    from db.models import Camera
+    from sqlalchemy import select
+
+    # Resolve a real camera_id to satisfy the FK constraint on detections
+    resolved_camera_id = camera_id
+    if not resolved_camera_id:
+        try:
+            async with get_db_session() as db:
+                result = await db.execute(select(Camera.camera_id).limit(1))
+                resolved_camera_id = result.scalar_one_or_none()
+        except Exception:
+            pass
+
+    if not resolved_camera_id:
+        return {"status": "error", "message": "No camera found in DB. Pass ?camera_id=<id> explicitly."}
+
+    fake_event = {
+        "event_id":     str(uuid.uuid4()),
+        "event_type":   "START",
+        "camera_id":    resolved_camera_id,
+        "zone_id":      None,   # None avoids UUID cast error on Incident.zone_id
+        "zone_name":    zone_name,
+        "object_class": object_class,
+        "confidence":   0.95,
+        "timestamp":    time.time(),
+        "track_id":     1,
+        "dwell_sec":    0,
+        "bbox":         {"x1": 100, "y1": 100, "x2": 300, "y2": 400},
+        "vlm": {
+            "threat_level": threat_level.upper(),
+            "is_threat":    threat_level.upper() in ("HIGH", "MEDIUM"),
+            "summary":      f"[FORCED] {object_class.capitalize()} detected in {zone_name} — {threat_level} threat.",
+        },
+    }
+
+    await bus.vlm_results.put(fake_event)
+    logger.info(f"[Debug] Injected into bus.vlm_results: {threat_level} / {object_class} / {zone_name} / camera={resolved_camera_id}")
+
+    return {
+        "status":  "queued",
+        "message": "Fake event injected into bus.vlm_results — decision engine will write to DB and fire notifications.",
+        "event":   fake_event,
+    }
+
+
 @router.post("/test-notification")
 async def test_notification(
     threat_level: str = "HIGH",
