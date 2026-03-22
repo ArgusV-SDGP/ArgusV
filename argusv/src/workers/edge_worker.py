@@ -293,11 +293,15 @@ class DwellTracker:
             dwell = now - t["first_seen"]
 
             # Update base event context for future emits
-            t["base_event"].update({
+            update = {
                 "zone_id": zone_id,
                 "zone_name": zone_name,
-                "bbox": event.get("bbox", t["base_event"].get("bbox"))
-            })
+                "bbox": event.get("bbox", t["base_event"].get("bbox")),
+            }
+            # Keep frame current so LOITERING notifications show the latest frame, not the first-seen frame
+            if event.get("trigger_frame_b64"):
+                update["trigger_frame_b64"] = event["trigger_frame_b64"]
+            t["base_event"].update(update)
             t["loiter_sec"] = effective_loiter_sec
 
             if dwell >= t["loiter_sec"] and not t["loitering_emitted"]:
