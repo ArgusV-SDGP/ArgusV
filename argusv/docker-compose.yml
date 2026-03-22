@@ -40,12 +40,25 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       USE_TIERED_VLM: "true"
       VLM_MAX_WORKERS: "2"
+      GENAI_PROVIDER: ${GENAI_PROVIDER:-openai}
+      SEGMENT_VLM_PROVIDER: ${SEGMENT_VLM_PROVIDER:-openai}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+      GEMINI_VISION_MODEL: ${GEMINI_VISION_MODEL:-gemini-2.0-flash}
 
       # ── Notifications ─────────────────────────
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
-      SLACK_CHANNEL_ID: "#argus-alerts"
+      SLACK_CHANNEL_ID: ${SLACK_CHANNEL_ID:-#argus-alerts}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
 
-      LOG_LEVEL: "INFO"
+      # ── Frontend / MediaMTX ───────────────────
+      MEDIAMTX_HLS_BASE: ${MEDIAMTX_HLS_BASE:-http://localhost:8888}
+
+      # ── Auth ──────────────────────────────────
+      DEV_AUTH_BYPASS: ${DEV_AUTH_BYPASS:-false}
+
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
     volumes:
       - ${ARGUSV_SEGMENTS_DIR:-./tmp/argus_segments}:/tmp/argus_segments
