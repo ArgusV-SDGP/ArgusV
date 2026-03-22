@@ -19,8 +19,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       RTSP_HOST: mediamtx
     volumes:
-      - ./tmp/argus_segments:/tmp/argus_segments
-      - ./recordings:/recordings
+      - ${ARGUSV_SEGMENTS_DIR:-./tmp/argus_segments}:/tmp/argus_segments
+      - ${ARGUSV_RECORDINGS_DIR:-./recordings}:/recordings
     depends_on:
       postgres:
         condition: service_healthy

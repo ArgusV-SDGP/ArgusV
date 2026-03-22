@@ -35,10 +35,11 @@ jobs:
         run: echo "tag=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}" >> $GITHUB_OUTPUT
 
       - name: Build image
-        # NEXT_PUBLIC_BASE_URL is baked into the JS bundle at build time
+        # NEXT_PUBLIC_* vars are baked into the JS bundle at build time
         run: |
           docker build \
             --build-arg NEXT_PUBLIC_BASE_URL=${{ secrets.NEXT_PUBLIC_BASE_URL }} \
+            --build-arg NEXT_PUBLIC_STREAM_BASE_URL=${{ secrets.NEXT_PUBLIC_STREAM_BASE_URL }} \
             -t ${{ steps.meta.outputs.tag }} \
             argusv-forntend-/
 
@@ -54,10 +55,41 @@ jobs:
     needs: build-and-push
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Ensure server directories exist
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: mkdir -p /opt/argusv/nginx
+
+      - name: Sync compose file to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          source: "argusv/docker-compose.prod.yml"
+          target: "/opt/argusv/"
+          strip_components: 1
+
+      - name: Sync nginx config to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          source: "argusv/nginx/default.conf"
+          target: "/opt/argusv/nginx/"
+          strip_components: 2
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
@@ -75,6 +107,9 @@ jobs:
             # Pull only the frontend image and restart it
             docker compose -f docker-compose.prod.yml pull frontend
             docker compose -f docker-compose.prod.yml up -d --no-deps frontend
+
+            # Reload nginx to pick up any config changes
+            docker compose -f docker-compose.prod.yml exec -T nginx nginx -s reload || true
 
             # Remove dangling images to free disk
             docker image prune -f

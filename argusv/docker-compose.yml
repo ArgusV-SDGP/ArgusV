@@ -10,7 +10,7 @@ services:
       dockerfile: Dockerfile
     container_name: argusv
     ports:
-      - "8000:8000" # Dashboard at http://localhost:8000
+      - "8003:8000" # Dashboard at http://localhost:8000
     environment:
       # ── Infrastructure ──────────────────────
       POSTGRES_URL: postgresql://argus:password@postgres:5432/argus_db
@@ -48,8 +48,8 @@ services:
       LOG_LEVEL: "INFO"
 
     volumes:
-      - ./tmp/argus_segments:/tmp/argus_segments
-      - ./recordings:/recordings
+      - ${ARGUSV_SEGMENTS_DIR:-./tmp/argus_segments}:/tmp/argus_segments
+      - ${ARGUSV_RECORDINGS_DIR:-./recordings}:/recordings
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,9 +68,8 @@ services:
       - "5433:5432" # host:container — avoids conflict with existing postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ../../configs/db:/docker-entrypoint-initdb.d
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U argus" ]
+      test: [ "CMD-SHELL", "pg_isready -U argus -d argus_db" ]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -119,7 +118,7 @@ services:
       - mediamtx
     restart: unless-stopped
     volumes:
-      - ./tmp:/videos:ro
+      - ${ARGUSV_VIDEOS_DIR:-./tmp}:/videos:ro
     command: >
       -re -stream_loop -1
       -i "/videos/demo.mp4"
@@ -136,7 +135,7 @@ services:
       - mediamtx
     restart: unless-stopped
     volumes:
-      - ./tmp:/videos:ro
+      - ${ARGUSV_VIDEOS_DIR:-./tmp}:/videos:ro
     command: >
       -re -stream_loop -1
       -i "/videos/demo2.mp4"

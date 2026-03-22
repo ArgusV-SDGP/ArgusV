@@ -18,6 +18,8 @@ RUN pip install --no-cache-dir uv && uv pip install . --system
 # Copy monolith source
 COPY src/ ./src/
 COPY static/ ./static/
+COPY alembic/ ./alembic/
+COPY alembic.ini .
 
 ENV PYTHONPATH="/app/src"
 
