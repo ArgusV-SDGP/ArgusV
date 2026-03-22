@@ -46,7 +46,6 @@ services:
       - ./nginx/certs:/etc/nginx/certs:ro
     depends_on:
       - argusv
-      - frontend
 
   postgres:
     image: pgvector/pgvector:pg15
