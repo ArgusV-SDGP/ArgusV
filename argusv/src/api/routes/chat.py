@@ -602,8 +602,8 @@ def _dedup_sources(sources: list[SourceClip]) -> list[SourceClip]:
                 if abs((t1 - t2).total_seconds()) < 15:
                     overlap = True
                     break
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"[Chat] pgvector search unavailable: {e}")
         if not overlap:
             deduped.append(src)
     return deduped

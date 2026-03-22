@@ -363,8 +363,7 @@ async def notification_worker():
         action: dict = await bus.actions.get()
         try:
             if action.get("action_type") == "ALERT":
-                if cfg.TELEGRAM_BOT_TOKEN and cfg.TELEGRAM_CHAT_ID:
-                    await _send_telegram(action)
+                await _dispatch_notifications(action)
         except Exception as e:
             logger.error(f"[Notification] Error: {e}", exc_info=True)
         finally:
@@ -399,7 +398,10 @@ async def _dispatch_notifications(action: dict):
         rule_cfg = rule.config or {}
         for channel in (rule.channels or []):
             try:
-                if channel == "slack" and cfg.SLACK_BOT_TOKEN:
+                if channel == "telegram" and cfg.TELEGRAM_BOT_TOKEN and cfg.TELEGRAM_CHAT_ID:
+                    await _send_telegram(action)
+                    dispatched = True
+                elif channel == "slack" and cfg.SLACK_BOT_TOKEN:
                     await _send_slack(action)
                     dispatched = True
                 elif channel == "webhook":
@@ -410,9 +412,12 @@ async def _dispatch_notifications(action: dict):
             except Exception as e:
                 logger.error(f"[Notification] Channel '{channel}' error: {e}")
 
-    # Fallback: no rules configured → use env-based Slack if available
-    if not dispatched and action.get("action_type") == "ALERT" and cfg.SLACK_BOT_TOKEN:
-        await _send_slack(action)
+    # Fallback: no DB rules matched → use env-based credentials if available
+    if not dispatched:
+        if cfg.TELEGRAM_BOT_TOKEN and cfg.TELEGRAM_CHAT_ID:
+            await _send_telegram(action)
+        elif cfg.SLACK_BOT_TOKEN:
+            await _send_slack(action)
 
 
 async def _send_slack(action: dict):

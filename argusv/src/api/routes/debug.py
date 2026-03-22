@@ -1,12 +1,13 @@
 """
 api/routes/debug.py — DB inspection endpoint for debugging
 -----------------------------------------------------------
-GET /api/debug/overview
-  Returns recent segments, detections, incidents + embedding coverage stats.
-  No auth required in dev (DEV_AUTH_BYPASS=true covers it via middleware).
+GET  /api/debug/overview          — recent segments, detections, incidents
+POST /api/debug/test-notification — inject a fake ALERT to test Telegram/Slack/Webhook
 """
 
 import logging
+import time
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -98,7 +99,7 @@ def debug_overview(
         })
 
     return {
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at":  datetime.utcnow().isoformat(),
         "stats": {
             "segments": {
                 "total": seg_total,
@@ -123,4 +124,47 @@ def debug_overview(
         "segments":   segments,
         "detections": detections,
         "incidents":  incidents,
+    }
+
+
+@router.post("/test-notification")
+async def test_notification(
+    threat_level: str = "HIGH",
+    object_class: str = "person",
+    zone_name: str = "Test Zone",
+    camera_id: str = "test-cam-01",
+):
+    """
+    Inject a fake ALERT action into the pipeline bus to test the full
+    notification flow (Telegram / Slack / Webhook) without a real camera.
+
+    Query params:
+      threat_level  HIGH | MEDIUM | LOW   (default: HIGH)
+      object_class  e.g. person, car      (default: person)
+      zone_name     any string            (default: Test Zone)
+      camera_id     any string            (default: test-cam-01)
+    """
+    from bus import bus
+
+    fake_action = {
+        "action_type":  "ALERT",
+        "event_id":     str(uuid.uuid4()),
+        "camera_id":    camera_id,
+        "zone_id":      "test-zone",
+        "zone_name":    zone_name,
+        "object_class": object_class,
+        "confidence":   0.92,
+        "threat_level": threat_level.upper(),
+        "is_threat":    True,
+        "summary":      f"[TEST] {object_class.capitalize()} detected in {zone_name} with {threat_level} threat level.",
+        "timestamp":    time.time(),
+    }
+
+    await bus.actions.put(fake_action)
+    logger.info(f"[Debug] Injected test ALERT: {threat_level} / {object_class} / {zone_name}")
+
+    return {
+        "status":  "queued",
+        "message": "Fake ALERT injected into bus.actions — check Telegram/Slack/logs.",
+        "action":  fake_action,
     }

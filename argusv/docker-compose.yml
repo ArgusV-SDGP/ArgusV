@@ -32,7 +32,7 @@ services:
       EMBED_FRAME: "true"
 
       # ── Recording ────────────────────────────
-      RECORDINGS_ENABLED: "true"  # ✅ ENABLED for local recording
+      RECORDINGS_ENABLED: "true"  
       SEGMENT_TMP_DIR: "/tmp/argus_segments"
       LOCAL_RECORDINGS_DIR: "/recordings"
 
