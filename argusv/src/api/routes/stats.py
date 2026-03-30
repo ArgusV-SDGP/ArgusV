@@ -32,6 +32,16 @@ router = APIRouter(prefix="/api/stats", tags=["stats"])
 logger = logging.getLogger("api.stats")
 
 
+def _queue_size_snapshot(bus_stats: dict[str, int]) -> dict[str, int]:
+    """Legacy flat queue shape used by older UI/test code."""
+    return {
+        "raw_detections": bus_stats.get("raw_detections", 0),
+        "vlm_requests": bus_stats.get("vlm_requests", 0),
+        "vlm_results": bus_stats.get("vlm_results", 0),
+        "actions": bus_stats.get("actions", 0),
+    }
+
+
 @router.get("")
 def get_system_stats(
     db: Session = Depends(get_db),
@@ -120,9 +130,11 @@ def get_system_stats(
 
     # 6. Disk usage
     disk_usage = None
+    disk_usage_used_bytes = 0
     recordings_dir = cfg.LOCAL_RECORDINGS_DIR
     if os.path.exists(recordings_dir):
         usage = shutil.disk_usage(recordings_dir)
+        disk_usage_used_bytes = int(usage.used)
         disk_usage = {
             "total_gb": round(usage.total / (1024**3), 2),
             "used_gb": round(usage.used / (1024**3), 2),
@@ -143,7 +155,9 @@ def get_system_stats(
             "status": latest_incident.status,
         }
 
-    return {
+    legacy_queues = _queue_size_snapshot(bus_stats)
+
+    response = {
         "timestamp": datetime.utcnow().isoformat(),
         "uptime_info": {
             "app_started": "Unknown",  # TODO: Track app start time
@@ -181,4 +195,12 @@ def get_system_stats(
             "conf_threshold": cfg.CONF_THRESHOLD,
             "use_tiered_vlm": cfg.USE_TIERED_VLM,
         },
+        # Compatibility fields for existing dashboard/test consumers.
+        "camera_health": camera_health,
+        "detections_24h": total_detections,
+        "incidents_24h": incidents_24h,
+        "segments_storage_bytes": int(total_storage_bytes or 0),
+        "disk_usage_bytes": disk_usage_used_bytes,
+        "queues": legacy_queues,
     }
+    return response
