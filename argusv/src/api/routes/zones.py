@@ -7,11 +7,11 @@ from datetime import datetime, timezone
 import json
 import logging
 import uuid
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import redis
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from shapely.geometry import Polygon
 from sqlalchemy.orm import Session
 
@@ -24,26 +24,80 @@ from db.models import Camera, Incident, Rule, Zone
 router = APIRouter(prefix="/api/zones", tags=["zones"])
 logger = logging.getLogger("api.zones")
 
+def _normalize_optional_str_list(values: Optional[list[str]]) -> Optional[list[str]]:
+    if values is None:
+        return None
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        item = str(raw).strip().lower()
+        if not item:
+            continue
+        if item in seen:
+            continue
+        seen.add(item)
+        normalized.append(item)
+    return normalized
+
+
+def _ensure_camera_exists(db: Session, camera_id: Optional[str]) -> None:
+    if camera_id and not db.query(Camera).filter(Camera.camera_id == camera_id).first():
+        raise HTTPException(400, "Invalid camera_id")
+
+
+def _delete_zone_dependencies(db: Session, zone_id: uuid.UUID) -> None:
+    # Unlink cameras (zone_id is nullable -> just clear it)
+    db.query(Camera).filter(Camera.zone_id == zone_id).update(
+        {"zone_id": None}, synchronize_session=False
+    )
+    # Null out incident zone reference (keep historical records)
+    db.query(Incident).filter(Incident.zone_id == zone_id).update(
+        {"zone_id": None}, synchronize_session=False
+    )
+    # Delete rules first (no cascade configured on the FK)
+    db.query(Rule).filter(Rule.zone_id == zone_id).delete(synchronize_session=False)
+
 
 class ZoneCreate(BaseModel):
     camera_id: str = Field(min_length=1)
     name: str = Field(min_length=1)
     polygon_coords: list[list[float]]
-    zone_type: str = "security"
+    zone_type: Literal["security", "intrusion", "loitering", "restricted"] = "security"
     dwell_threshold_sec: int = Field(default=30, ge=1)
     # Per-zone object class allow-list. null = accept all globally configured classes.
     # Example: ["person"] for entrance zone, ["car","truck","bus"] for parking lot.
     allowed_classes: Optional[list[str]] = None
     active: bool = True
 
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("name cannot be empty")
+        return cleaned
+
+    @field_validator("allowed_classes")
+    @classmethod
+    def _validate_allowed_classes(cls, value: Optional[list[str]]) -> Optional[list[str]]:
+        return _normalize_optional_str_list(value)
+
 
 class RuleCreate(BaseModel):
-    trigger_type: str = "loitering"         # loitering | intrusion | restricted_area
-    severity: str = "MEDIUM"                 # HIGH | MEDIUM | LOW
-    object_classes: list[str] = ["person"]   # person | car | truck
-    action: str = "ALERT"                    # ALERT | MONITOR | IGNORE
+    trigger_type: Literal["loitering", "intrusion", "restricted_area"] = "loitering"
+    severity: Literal["HIGH", "MEDIUM", "LOW"] = "MEDIUM"
+    object_classes: list[str] = Field(default_factory=lambda: ["person"])
+    action: Literal["ALERT", "MONITOR", "IGNORE"] = "ALERT"
     min_confidence: float = Field(default=0.45, ge=0.0, le=1.0)
     is_active: bool = True
+
+    @field_validator("object_classes")
+    @classmethod
+    def _validate_object_classes(cls, value: list[str]) -> list[str]:
+        normalized = _normalize_optional_str_list(value) or []
+        if not normalized:
+            raise ValueError("object_classes must include at least one class")
+        return normalized
 
 
 def _parse_rule(rule: Rule) -> dict[str, Any]:
@@ -64,10 +118,25 @@ class ZonePatch(BaseModel):
     camera_id: Optional[str] = None
     name: Optional[str] = Field(default=None, min_length=1)
     polygon_coords: Optional[list[list[float]]] = None
-    zone_type: Optional[str] = None
+    zone_type: Optional[Literal["security", "intrusion", "loitering", "restricted"]] = None
     dwell_threshold_sec: Optional[int] = Field(default=None, ge=1)
     allowed_classes: Optional[list[str]] = None  # set to [] to clear (allow all)
     active: Optional[bool] = None
+
+    @field_validator("name")
+    @classmethod
+    def _validate_patch_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("name cannot be empty")
+        return cleaned
+
+    @field_validator("allowed_classes")
+    @classmethod
+    def _validate_patch_allowed_classes(cls, value: Optional[list[str]]) -> Optional[list[str]]:
+        return _normalize_optional_str_list(value)
 
 
 def _parse_zone(zone: Zone, rules: list[Rule] | None = None) -> dict[str, Any]:
@@ -192,13 +261,12 @@ def create_zone(
     db: Session = Depends(get_db),
     _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR)),
 ):
-    if not db.query(Camera).filter(Camera.camera_id == payload.camera_id).first():
-        raise HTTPException(400, "Invalid camera_id")
+    _ensure_camera_exists(db, payload.camera_id)
     polygon_coords = _validate_polygon(payload.polygon_coords)
     zone = Zone(
         zone_id=uuid.uuid4(),
         camera_id=payload.camera_id,
-        name=payload.name.strip(),
+        name=payload.name,
         polygon_coords=polygon_coords,
         zone_type=payload.zone_type,
         dwell_threshold_sec=payload.dwell_threshold_sec,
@@ -224,11 +292,10 @@ def update_zone(
     zone = db.query(Zone).filter(Zone.zone_id == zid).first()
     if not zone:
         raise HTTPException(404, "Zone not found")
-    if not db.query(Camera).filter(Camera.camera_id == payload.camera_id).first():
-        raise HTTPException(400, "Invalid camera_id")
+    _ensure_camera_exists(db, payload.camera_id)
 
     zone.camera_id = payload.camera_id
-    zone.name = payload.name.strip()
+    zone.name = payload.name
     zone.polygon_coords = _validate_polygon(payload.polygon_coords)
     zone.zone_type = payload.zone_type
     zone.dwell_threshold_sec = payload.dwell_threshold_sec
@@ -256,11 +323,10 @@ def patch_zone(
 
     data = payload.model_dump(exclude_unset=True)
     if "name" in data and data["name"] is not None:
-        zone.name = data["name"].strip()
+        zone.name = data["name"]
     if "camera_id" in data:
         camera_id = data["camera_id"]
-        if camera_id and not db.query(Camera).filter(Camera.camera_id == camera_id).first():
-            raise HTTPException(400, "Invalid camera_id")
+        _ensure_camera_exists(db, camera_id)
         zone.camera_id = camera_id
     if "polygon_coords" in data and data["polygon_coords"] is not None:
         zone.polygon_coords = _validate_polygon(data["polygon_coords"])
@@ -292,23 +358,39 @@ def delete_zone(
     zone = db.query(Zone).filter(Zone.zone_id == zid).first()
     if not zone:
         raise HTTPException(404, "Zone not found")
-
-    # Unlink cameras (zone_id is nullable — just clear it)
-    db.query(Camera).filter(Camera.zone_id == zid).update(
-        {"zone_id": None}, synchronize_session=False
-    )
-
-    # Null out incident zone reference (keep historical records)
-    db.query(Incident).filter(Incident.zone_id == zid).update(
-        {"zone_id": None}, synchronize_session=False
-    )
-
-    # Delete rules first (no cascade configured on the FK)
-    db.query(Rule).filter(Rule.zone_id == zid).delete(synchronize_session=False)
-
+    _delete_zone_dependencies(db, zid)
     db.delete(zone)
     db.commit()
     _publish_zone_update(zone_id, "deleted")
+
+
+@router.delete("", status_code=200)
+def delete_all_zones(
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_roles(ROLE_ADMIN)),
+):
+    zones = db.query(Zone).all()
+    if not zones:
+        return {"deleted": 0, "zone_ids": []}
+
+    zone_ids = [z.zone_id for z in zones]
+    zone_ids_str = [str(zid) for zid in zone_ids]
+
+    db.query(Camera).filter(Camera.zone_id.in_(zone_ids)).update(
+        {"zone_id": None}, synchronize_session=False
+    )
+    db.query(Incident).filter(Incident.zone_id.in_(zone_ids)).update(
+        {"zone_id": None}, synchronize_session=False
+    )
+    db.query(Rule).filter(Rule.zone_id.in_(zone_ids)).delete(synchronize_session=False)
+    for zone in zones:
+        db.delete(zone)
+    db.commit()
+
+    for zid in zone_ids_str:
+        _publish_zone_update(zid, "deleted")
+
+    return {"deleted": len(zone_ids_str), "zone_ids": zone_ids_str}
 
 
 # ── Zone Rules ────────────────────────────────────────────────────────────────
