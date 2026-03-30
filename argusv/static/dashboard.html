@@ -1651,8 +1651,11 @@
         const stats = await res.json();
 
         // Camera health
-        const camOnline = stats.cameras?.filter(c => c.status === 'online').length || 0;
-        const camTotal = stats.cameras?.length || 0;
+        const cameraRows = Array.isArray(stats.cameras)
+          ? stats.cameras
+          : (stats.camera_health || stats.cameras?.health || []);
+        const camOnline = cameraRows.filter(c => c.status === 'online').length || 0;
+        const camTotal = cameraRows.length || 0;
         const camColor = camOnline === camTotal ? 'var(--green)' : (camOnline > 0 ? 'var(--orange)' : 'var(--red)');
         document.getElementById('sys-cameras').innerHTML =
           `<span style="color:${camColor}">●</span> ${camOnline} / ${camTotal}`;
