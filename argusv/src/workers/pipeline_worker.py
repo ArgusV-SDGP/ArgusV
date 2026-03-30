@@ -349,8 +349,8 @@ async def _process_decision(event: dict):
     except Exception as e:
         logger.error(f"[Decision] DB write failed (notification will still fire): {e}", exc_info=True)
 
-    # Always forward threats to notification + actuation regardless of DB outcome
-    if is_threat:
+    # Forward only MEDIUM/HIGH threats to notification + actuation regardless of DB outcome
+    if is_threat and threat_level in ("HIGH", "MEDIUM"):
         await bus.actions.put({
             **event,
             "action_type":  "ALERT",
@@ -381,6 +381,8 @@ async def _dispatch_notifications(action: dict):
     from sqlalchemy import select
 
     threat_level = action.get("threat_level", "LOW")
+    if threat_level not in ("HIGH", "MEDIUM"):
+        return
     event_zone_id = str(action.get("zone_id", "")) if action.get("zone_id") else None
     dispatched = False
 
