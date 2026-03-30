@@ -62,15 +62,53 @@ class EventDispatcher:
             await self._dispatch_webpush(event)
 
     async def _dispatch_mqtt(self, event: dict):
-        """TODO NOTIF-05: publish to MQTT"""
-        # import aiomqtt
-        # async with aiomqtt.Client(host, port) as client:
-        #     await client.publish(f"argus/{camera_id}/alert", json.dumps(event))
-        logger.debug(f"[Dispatcher] TODO: MQTT publish for {event.get('camera_id')}")
+        """
+        Publish alert to MQTT topic.
+        Task: NOTIF-05
+        """
+        if self._mqtt_client:
+            topic = f"argusv/{event.get('camera_id')}/alert"
+            try:
+                await self._mqtt_client.publish(topic, json.dumps(event))
+                logger.info(f"[Dispatcher] MQTT published to {topic}")
+            except Exception as e:
+                logger.error(f"[Dispatcher] MQTT publish failed: {e}")
+        else:
+            logger.debug(f"[Dispatcher] MQTT not configured for {event.get('camera_id')}")
 
     async def _dispatch_webpush(self, event: dict):
-        """TODO: send browser push notification"""
-        logger.debug(f"[Dispatcher] TODO: WebPush for {event.get('camera_id')}")
+        """
+        Send browser push notification for HIGH threats.
+        Task: NOTIF-07 (WebPush)
+        """
+        if self._webpush_client:
+            try:
+                await self._webpush_client.send_notification(event)
+                logger.info(f"[Dispatcher] WebPush sent for {event.get('incident_id')}")
+            except Exception as e:
+                logger.error(f"[Dispatcher] WebPush failed: {e}")
+        else:
+            logger.debug(f"[Dispatcher] WebPush not configured")
+
+    async def dispatch_webhook(self, event: dict, webhook_url: str):
+        """
+        Send event to external webhook endpoint.
+        Task: NOTIF-07 (Webhook)
+        """
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(
+                    webhook_url,
+                    json=event,
+                    headers={"Content-Type": "application/json"},
+                )
+                if resp.status_code >= 400:
+                    logger.warning(f"[Dispatcher] Webhook returned {resp.status_code}: {webhook_url}")
+                else:
+                    logger.info(f"[Dispatcher] Webhook delivered to {webhook_url}")
+        except Exception as e:
+            logger.error(f"[Dispatcher] Webhook failed ({webhook_url}): {e}")
 
 
 class MQTTClient:

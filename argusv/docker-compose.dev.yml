@@ -5,18 +5,18 @@
 services:
 
   postgres:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
     container_name: argus-postgres-dev
     environment:
       POSTGRES_USER: argus
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: argus_db
+      POSTGRES_DB: argus_db_new
     ports:
-      - "5433:5432"
+      - "5434:5432"
     volumes:
       - postgres_dev_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U argus -d argus_db" ]
+      test: [ "CMD-SHELL", "pg_isready -U argus -d argus_db_new" ]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -34,25 +34,88 @@ services:
       timeout: 3s
       retries: 5
 
-  # Live stream re-broadcaster (RTSP → HLS for dashboard)
+  # ── MediaMTX — RTSP → HLS broadcaster ──────────────────────────────
   mediamtx:
     image: bluenviron/mediamtx:latest
     container_name: argus-mediamtx-dev
     ports:
       - "8554:8554" # RTSP input
-      - "8888:8888" # HLS output
+      - "8888:8888" # HLS output  → http://localhost:8888/cam-01/index.m3u8
       - "8889:8889" # WebRTC output
+      - "9997:9997" # Control API → http://localhost:9997/v3/paths/list
     environment:
       MTX_PROTOCOLS: tcp
       MTX_HLSADDRESS: :8888
       MTX_RTSPADDRESS: :8554
       MTX_WEBRTCADDRESS: :8889
       MTX_HLSALWAYSREMUX: "yes"
-      MTX_HLSSEGMENTCOUNT: "3"
+      MTX_HLSSEGMENTCOUNT: "7"
       MTX_HLSSEGMENTDURATION: 2s
       MTX_HLSALLOWORIGIN: "*"
       MTX_LOGLEVEL: info
       MTX_API: "yes"
+      MTX_APIADDRESS: :9997
+
+  # ── RTSP Stream Simulators ──────────────────────────────────────────
+  # Push looping demo video to MediaMTX.
+  # HLS output: http://localhost:8888/cam-01/index.m3u8
+  #             http://localhost:8888/cam-02/index.m3u8
+  #
+  # To use test patterns instead of video files, replace the command with:
+  #   -re -f lavfi -i "testsrc2=size=1280x720:rate=25"
+  #   -c:v libx264 -preset ultrafast -tune zerolatency -g 50 -pix_fmt yuv420p
+  #   -f rtsp -rtsp_transport tcp rtsp://mediamtx:8554/cam-01
+  rtsp-sim-cam01:
+    image: jrottenberg/ffmpeg:5.1-alpine
+    platform: linux/amd64
+    container_name: argus-rtsp-sim-cam01
+    depends_on:
+      - mediamtx
+    restart: unless-stopped
+    volumes:
+      - ${ARGUSV_VIDEOS_DIR:-./tmp}:/videos:ro
+    command: >
+      -re -stream_loop -1
+      -i "/videos/demo.mp4"
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -an
+      -f rtsp -rtsp_transport tcp
+      rtsp://mediamtx:8554/cam-01
+
+  rtsp-sim-cam02:
+    image: jrottenberg/ffmpeg:5.1-alpine
+    platform: linux/amd64
+    container_name: argus-rtsp-sim-cam02
+    depends_on:
+      - mediamtx
+    restart: unless-stopped
+    volumes:
+      - ${ARGUSV_VIDEOS_DIR:-./tmp}:/videos:ro
+    command: >
+      -re -stream_loop -1
+      -i "/videos/demo2.mp4"
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -an
+      -f rtsp -rtsp_transport tcp
+      rtsp://mediamtx:8554/cam-02
+
+
+  rtsp-sim-cam03:
+    image: jrottenberg/ffmpeg:5.1-alpine
+    platform: linux/amd64
+    container_name: argus-rtsp-sim-cam03
+    depends_on:
+      - mediamtx
+    restart: unless-stopped
+    volumes:
+      - ${ARGUSV_VIDEOS_DIR:-./tmp}:/videos:ro
+    command: >
+      -re -stream_loop -1
+      -i "/videos/demo2.mp4"
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -an
+      -f rtsp -rtsp_transport tcp
+      rtsp://mediamtx:8554/cam-03
 
 volumes:
   postgres_dev_data:

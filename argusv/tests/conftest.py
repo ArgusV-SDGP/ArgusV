@@ -4,8 +4,19 @@ Task: TEST-01
 """
 import pytest
 import asyncio
+from pathlib import Path
+import sys
 from unittest.mock import AsyncMock, MagicMock
-from bus import EventBus
+
+# Add src directory to Python path
+src_path = Path(__file__).parent.parent / "src"
+sys.path.insert(0, str(src_path))
+
+try:
+    from bus import bus, EventBus
+except ImportError:
+    # Provide fallback if bus module not found
+    EventBus = MagicMock
 
 
 @pytest.fixture

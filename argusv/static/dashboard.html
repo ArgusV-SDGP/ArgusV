@@ -845,6 +845,263 @@
       font-size: 13px;
       opacity: 0.7;
     }
+
+    #users-section {
+      display: none;
+    }
+
+    .users-shell {
+      display: grid;
+      grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .users-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .users-panel h3 {
+      margin: 0 0 12px;
+      font-size: 14px;
+    }
+
+    .users-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .users-panel-header p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .users-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .users-stat {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: rgba(15, 23, 42, 0.45);
+    }
+
+    .users-stat-label {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .users-stat-value {
+      margin-top: 6px;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .users-form {
+      display: grid;
+      gap: 10px;
+    }
+
+    .users-form input,
+    .users-form select {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .users-form label,
+    .users-table th,
+    .users-table td,
+    .users-empty,
+    .users-status {
+      font-size: 12px;
+    }
+
+    .users-form label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+    }
+
+    .users-form-help {
+      margin: -2px 0 4px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .users-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .users-checkbox input {
+      width: auto;
+      margin: 0;
+    }
+
+    .users-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .users-btn {
+      border: 1px solid rgba(59, 130, 246, 0.35);
+      background: rgba(59, 130, 246, 0.16);
+      color: #bfdbfe;
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .users-btn.secondary {
+      border-color: var(--border);
+      background: rgba(148, 163, 184, 0.08);
+      color: var(--text);
+    }
+
+    .users-status {
+      color: var(--muted);
+      min-height: 18px;
+    }
+
+    .users-table-wrap {
+      overflow-x: auto;
+    }
+
+    .users-directory-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .users-count-badge {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 11px;
+      color: var(--muted);
+      background: rgba(148, 163, 184, 0.08);
+      white-space: nowrap;
+    }
+
+    .users-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .users-table th,
+    .users-table td {
+      padding: 12px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    .users-table th {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .users-table td select {
+      min-width: 120px;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 7px 9px;
+    }
+
+    .users-table td button {
+      border: 1px solid var(--border);
+      background: rgba(148, 163, 184, 0.08);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .role-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .role-pill.ADMIN {
+      background: rgba(239, 68, 68, 0.14);
+      color: #fca5a5;
+    }
+
+    .role-pill.OPERATOR {
+      background: rgba(249, 115, 22, 0.14);
+      color: #fdba74;
+    }
+
+    .role-pill.VIEWER {
+      background: rgba(59, 130, 246, 0.14);
+      color: #93c5fd;
+    }
+
+    .state-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .state-pill.active {
+      background: rgba(34, 197, 94, 0.14);
+      color: #86efac;
+    }
+
+    .state-pill.inactive {
+      background: rgba(148, 163, 184, 0.14);
+      color: #cbd5e1;
+    }
+
+    .users-empty {
+      color: var(--muted);
+      padding: 20px 0;
+    }
+
+    @media (max-width: 1100px) {
+      .users-shell {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
 
@@ -878,7 +1135,7 @@
   </header>
 
   <nav
-    style="display:flex;gap:4px;padding:8px 28px;border-bottom:1px solid rgba(255,255,255,0.07);background:rgba(10,12,16,0.95)">
+    style="display:flex;gap:4px;padding:8px 28px;border-bottom:1px solid rgba(255,255,255,0.07);background:rgba(10,12,16,0.95);align-items:center;">
     <style>
       .nav-link {
         font-size: 12px;
@@ -904,6 +1161,9 @@
     <a class="nav-link" href="/static/recordings.html">📹 Recordings</a>
     <a class="nav-link" href="/static/incidents.html">🚨 Incidents</a>
     <a class="nav-link" href="/static/zones.html">📐 Zones</a>
+    <span id="auth-user" style="margin-left:auto;color:#94a3b8;font-size:12px;"></span>
+    <button id="logoutBtn"
+      style="border:none;background:#1f2937;color:#e2e8f0;border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;">Logout</button>
   </nav>
 
   <!-- ── View Toggle + Content ── -->
@@ -916,6 +1176,9 @@
       <button class="view-tab" id="tab-feed" onclick="switchView('feed')">
         📡 Detection Feed
         <span class="badge" id="feed-badge-tab" style="font-size:10px;padding:1px 6px">0</span>
+      </button>
+      <button class="view-tab" id="tab-users" onclick="switchView('users')" style="display:none;">
+        👤 Users
       </button>
     </div>
 
@@ -957,6 +1220,96 @@
         </div>
       </div>
     </section>
+
+    <section id="users-section">
+      <div class="users-shell">
+        <div class="users-panel">
+          <div class="users-panel-header">
+            <div>
+              <h3>Create User</h3>
+              <p>Add new admin, operator, or viewer accounts from the dashboard.</p>
+            </div>
+          </div>
+          <form class="users-form" id="user-create-form">
+            <label>
+              Username
+              <input id="new-user-username" name="username" type="text" minlength="3" maxlength="64" required />
+            </label>
+            <label>
+              Password
+              <input id="new-user-password" name="password" type="password" minlength="8" maxlength="256" required />
+            </label>
+            <label>
+              Role
+              <select id="new-user-role" name="role">
+                <option value="VIEWER">VIEWER</option>
+                <option value="OPERATOR">OPERATOR</option>
+                <option value="ADMIN">ADMIN</option>
+              </select>
+            </label>
+            <label class="users-checkbox">
+              <input id="new-user-active" name="is_active" type="checkbox" checked />
+              <span>Active immediately</span>
+            </label>
+            <div class="users-form-help">
+              New users appear in the current users list as soon as the account is created.
+            </div>
+            <div class="users-actions">
+              <button class="users-btn" type="submit">Create User</button>
+              <button class="users-btn secondary" type="button" id="users-refresh-btn">Refresh</button>
+            </div>
+            <div class="users-status" id="users-form-status"></div>
+          </form>
+        </div>
+
+        <div class="users-panel">
+          <div class="users-panel-header">
+            <div>
+              <h3>Current Users</h3>
+              <p>Review roles, active status, and update accounts.</p>
+            </div>
+            <div class="users-count-badge" id="users-count-badge">0 users</div>
+          </div>
+          <div class="users-summary">
+            <div class="users-stat">
+              <div class="users-stat-label">Total</div>
+              <div class="users-stat-value" id="users-stat-total">0</div>
+            </div>
+            <div class="users-stat">
+              <div class="users-stat-label">Active</div>
+              <div class="users-stat-value" id="users-stat-active">0</div>
+            </div>
+            <div class="users-stat">
+              <div class="users-stat-label">Admins</div>
+              <div class="users-stat-value" id="users-stat-admin">0</div>
+            </div>
+            <div class="users-stat">
+              <div class="users-stat-label">Viewers</div>
+              <div class="users-stat-value" id="users-stat-viewer">0</div>
+            </div>
+          </div>
+          <div class="users-status" id="users-list-status"></div>
+          <div class="users-table-wrap">
+            <table class="users-table">
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="users-table-body">
+                <tr>
+                  <td class="users-empty" colspan="5">No users loaded</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 
   <!-- ── Right Panel ── -->
@@ -965,6 +1318,32 @@
       <div class="panel-title">📷 Cameras</div>
       <div id="cameras-list">
         <div style="color:var(--muted);font-size:12px">Loading…</div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-title">⚙️ System Health</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span>Cameras:</span>
+          <span id="sys-cameras"><span style="color:var(--green)">●</span> 0 / 0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span>Detections (24h):</span>
+          <span id="sys-detections">0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span>Incidents (24h):</span>
+          <span id="sys-incidents">0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span>Disk Usage:</span>
+          <span id="sys-disk">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span>Queue Health:</span>
+          <span id="sys-queue"><span style="color:var(--green)">●</span> OK</span>
+        </div>
       </div>
     </div>
 
@@ -999,6 +1378,27 @@
   </aside>
   </main>
 
+  <script src="/static/auth.js"></script>
+  <script>
+    // ── Auth init: show username, wire logout ──────────────────────────────
+    (async () => {
+      const me = await window.ArgusAuth.fetchMe();
+      if (!me) {
+        const next = encodeURIComponent(window.location.pathname);
+        window.location.href = `/static/login.html?next=${next}`;
+        return;
+      }
+      const userEl = document.getElementById('auth-user');
+      if (userEl) {
+        const roleEmoji = { ADMIN: '🔑', VIEWER: '👁' }[me.role?.toUpperCase()] || '👤';
+        userEl.textContent = `${roleEmoji} ${me.username}`;
+      }
+    })();
+
+    document.getElementById('logoutBtn')?.addEventListener('click', () => {
+      window.ArgusAuth.logout();
+    });
+  </script>
   <script>
     // ── State ─────────────────────────────────────────────────────────────────
     const events = new Map();   // event_id → card data
@@ -1006,6 +1406,8 @@
     let total = 0;
     let threats = 0;
     let filter = 'ALL';
+    let currentUser = null;
+    let managedUsers = [];
     const STAGES = ['DETECTED', 'FRAMES_READY', 'VLM', 'DECISION', 'NOTIFIED'];
 
     // ── WebSocket ─────────────────────────────────────────────────────────────
@@ -1223,7 +1625,7 @@
     let cameraList = [];
     async function loadCameras() {
       try {
-        const res = await fetch('/api/cameras');
+        const res = await window.ArgusAuth.authFetch('/api/cameras');
         const cams = await res.json();
         cameraList = cams;
         document.getElementById('cam-count').textContent = cams.length;
@@ -1242,20 +1644,234 @@
       }
     }
 
+    // ── System Stats (sidebar) ────────────────────────────────────────────────
+    async function loadSystemStats() {
+      try {
+        const res = await window.ArgusAuth.authFetch('/api/stats');
+        const stats = await res.json();
+
+        // Camera health
+        const camOnline = stats.cameras?.filter(c => c.status === 'online').length || 0;
+        const camTotal = stats.cameras?.length || 0;
+        const camColor = camOnline === camTotal ? 'var(--green)' : (camOnline > 0 ? 'var(--orange)' : 'var(--red)');
+        document.getElementById('sys-cameras').innerHTML =
+          `<span style="color:${camColor}">●</span> ${camOnline} / ${camTotal}`;
+
+        // Detections & Incidents (24h)
+        document.getElementById('sys-detections').textContent = stats.detections_24h || 0;
+        document.getElementById('sys-incidents').textContent = stats.incidents_24h || 0;
+
+        // Disk usage
+        const diskGB = ((stats.disk_usage_bytes || 0) / (1024 ** 3)).toFixed(1);
+        const segmentsGB = ((stats.segments_storage_bytes || 0) / (1024 ** 3)).toFixed(1);
+        document.getElementById('sys-disk').textContent = `${segmentsGB} GB (${diskGB} GB total)`;
+
+        // Queue health
+        const queueTotal = Object.values(stats.queues || {}).reduce((sum, q) => sum + q, 0);
+        const queueColor = queueTotal < 100 ? 'var(--green)' : (queueTotal < 500 ? 'var(--orange)' : 'var(--red)');
+        const queueStatus = queueTotal < 100 ? 'OK' : (queueTotal < 500 ? 'WARN' : 'CRITICAL');
+        document.getElementById('sys-queue').innerHTML =
+          `<span style="color:${queueColor}">●</span> ${queueStatus} (${queueTotal})`;
+
+      } catch (err) {
+        console.error('Failed to load system stats:', err);
+        document.getElementById('sys-cameras').textContent = '—';
+        document.getElementById('sys-detections').textContent = '—';
+        document.getElementById('sys-incidents').textContent = '—';
+        document.getElementById('sys-disk').textContent = '—';
+        document.getElementById('sys-queue').innerHTML = '<span style="color:var(--red)">●</span> ERROR';
+      }
+    }
+
     // ── View Toggle ───────────────────────────────────────────────────────────
     let currentView = 'cameras';
     function switchView(view) {
+      if (view === 'users' && (!currentUser || currentUser.role !== 'ADMIN')) return;
       currentView = view;
       document.getElementById('tab-cameras').classList.toggle('active', view === 'cameras');
       document.getElementById('tab-feed').classList.toggle('active', view === 'feed');
-      document.getElementById('camera-grid-section').style.display = view === 'cameras' ? '' : 'none';
-      document.getElementById('feed-section').style.display = view === 'feed' ? '' : 'none';
+      document.getElementById('tab-users').classList.toggle('active', view === 'users');
+      document.getElementById('camera-grid-section').style.display = view === 'cameras' ? 'block' : 'none';
+      document.getElementById('feed-section').style.display = view === 'feed' ? 'block' : 'none';
+      document.getElementById('users-section').style.display = view === 'users' ? 'block' : 'none';
+      if (view === 'users') {
+        loadUsers();
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function formatDate(value) {
+      if (!value) return '—';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleString();
+    }
+
+    function setUsersStatus(message, isError = false) {
+      const listStatus = document.getElementById('users-list-status');
+      listStatus.textContent = message || '';
+      listStatus.style.color = isError ? '#fca5a5' : 'var(--muted)';
+    }
+
+    function setUsersFormStatus(message, isError = false) {
+      const formStatus = document.getElementById('users-form-status');
+      formStatus.textContent = message || '';
+      formStatus.style.color = isError ? '#fca5a5' : 'var(--muted)';
+    }
+
+    function updateUsersSummary() {
+      const total = managedUsers.length;
+      const active = managedUsers.filter(user => user.is_active).length;
+      const admins = managedUsers.filter(user => user.role === 'ADMIN').length;
+      const viewers = managedUsers.filter(user => user.role === 'VIEWER').length;
+
+      document.getElementById('users-count-badge').textContent = `${total} user${total === 1 ? '' : 's'}`;
+      document.getElementById('users-stat-total').textContent = total;
+      document.getElementById('users-stat-active').textContent = active;
+      document.getElementById('users-stat-admin').textContent = admins;
+      document.getElementById('users-stat-viewer').textContent = viewers;
+    }
+
+    function renderUsersTable() {
+      const body = document.getElementById('users-table-body');
+      updateUsersSummary();
+      if (!managedUsers.length) {
+        body.innerHTML = '<tr><td class="users-empty" colspan="5">No database-managed users found</td></tr>';
+        return;
+      }
+
+      body.innerHTML = managedUsers.map(user => {
+        const isSelf = currentUser && currentUser.username === user.username;
+        const roleOptions = ['VIEWER', 'OPERATOR', 'ADMIN']
+          .map(role => `<option value="${role}" ${user.role === role ? 'selected' : ''}>${role}</option>`)
+          .join('');
+        return `
+          <tr>
+            <td>
+              <div>${escapeHtml(user.username)}</div>
+              ${isSelf ? '<div style="color:var(--muted);font-size:11px;">Current session</div>' : ''}
+            </td>
+            <td>
+              <div class="role-pill ${escapeHtml(user.role)}">${escapeHtml(user.role)}</div>
+              <div style="margin-top:8px;">
+                <select data-role-user-id="${escapeHtml(user.user_id)}" ${isSelf ? 'disabled' : ''}>${roleOptions}</select>
+              </div>
+            </td>
+            <td><span class="state-pill ${user.is_active ? 'active' : 'inactive'}">${user.is_active ? 'ACTIVE' : 'INACTIVE'}</span></td>
+            <td>${escapeHtml(formatDate(user.created_at))}</td>
+            <td>
+              <button type="button" onclick="saveUserRole('${escapeHtml(user.user_id)}')" ${isSelf ? 'disabled' : ''}>Save Role</button>
+              <button type="button" onclick="toggleUserActive('${escapeHtml(user.user_id)}')" ${isSelf ? 'disabled' : ''}>
+                ${user.is_active ? 'Disable' : 'Enable'}
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function loadUsers() {
+      if (!currentUser || currentUser.role !== 'ADMIN') return;
+      setUsersStatus('Loading users…');
+      try {
+        const res = await window.ArgusAuth.authFetch('/api/users');
+        if (!res.ok) throw new Error(await res.text() || 'Failed to load users');
+        managedUsers = await res.json();
+        renderUsersTable();
+        setUsersStatus(`${managedUsers.length} user${managedUsers.length === 1 ? '' : 's'} loaded`);
+      } catch (err) {
+        managedUsers = [];
+        renderUsersTable();
+        setUsersStatus(err.message || 'Failed to load users', true);
+      }
+    }
+
+    async function saveUserRole(userId) {
+      const select = document.querySelector(`[data-role-user-id="${CSS.escape(userId)}"]`);
+      if (!select) return;
+      setUsersStatus('Saving role…');
+      try {
+        const res = await window.ArgusAuth.authFetch(`/api/users/${encodeURIComponent(userId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: select.value }),
+        });
+        if (!res.ok) throw new Error(await res.text() || 'Failed to update role');
+        await loadUsers();
+      } catch (err) {
+        setUsersStatus(err.message || 'Failed to update role', true);
+      }
+    }
+
+    async function toggleUserActive(userId) {
+      const user = managedUsers.find(entry => entry.user_id === userId);
+      if (!user) return;
+      setUsersStatus('Saving account status…');
+      try {
+        const res = await window.ArgusAuth.authFetch(`/api/users/${encodeURIComponent(userId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_active: !user.is_active }),
+        });
+        if (!res.ok) throw new Error(await res.text() || 'Failed to update status');
+        await loadUsers();
+      } catch (err) {
+        setUsersStatus(err.message || 'Failed to update status', true);
+      }
+    }
+
+    async function createManagedUser(event) {
+      event.preventDefault();
+      setUsersFormStatus('Creating user…');
+      const username = document.getElementById('new-user-username').value.trim();
+      const password = document.getElementById('new-user-password').value;
+      const role = document.getElementById('new-user-role').value;
+      const isActive = document.getElementById('new-user-active').checked;
+
+      try {
+        const res = await window.ArgusAuth.authFetch('/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, role, is_active: isActive }),
+        });
+        if (!res.ok) throw new Error(await res.text() || 'Failed to create user');
+        document.getElementById('user-create-form').reset();
+        document.getElementById('new-user-role').value = 'VIEWER';
+        document.getElementById('new-user-active').checked = true;
+        setUsersFormStatus(`Created ${username}`);
+        await loadUsers();
+      } catch (err) {
+        setUsersFormStatus(err.message || 'Failed to create user', true);
+      }
     }
 
     // ── Live Camera Grid (HLS.js) ────────────────────────────────────────────
     const hlsInstances = new Map();
-    // MediaMTX HLS base URL — same host, port 8888
-    const MEDIAMTX_HLS_BASE = `${location.protocol}//${location.hostname}:8888`;
+    const hlsRetryTimers = new Map();
+    // MediaMTX HLS base URL — loaded from server config at boot
+    let MEDIAMTX_HLS_BASE = 'http://localhost:8888'; // safe fallback
+
+    async function loadUiConfig() {
+      try {
+        const res = await fetch('/api/config/ui');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.mediamtx_hls_base) {
+            MEDIAMTX_HLS_BASE = data.mediamtx_hls_base;
+          }
+        }
+      } catch (e) {
+        console.warn('[ArgusV] Could not load UI config, using fallback HLS base:', MEDIAMTX_HLS_BASE);
+      }
+    }
 
     function buildCameraGrid(cameras) {
       const grid = document.getElementById('camera-grid');
@@ -1295,6 +1911,7 @@
           <div class="cam-overlay-bottom">
             <div class="cam-fps" id="fps-${camId}">-- fps</div>
             <div class="cam-controls">
+              <button class="cam-ctrl-btn" onclick="rewindCamera('${camId}')" title="Rewind 10s">↩</button>
               <button class="cam-ctrl-btn" onclick="toggleFullscreen('${camId}')" title="Fullscreen">⛶</button>
             </div>
           </div>
@@ -1306,6 +1923,20 @@
         const camId = cam.camera_id || cam.name;
         attachHlsStream(camId);
       });
+    }
+
+    async function rewindCamera(camId) {
+      try {
+        const res = await window.ArgusAuth.authFetch(`/api/recordings/${camId}/recent`);
+        if (!res.ok) throw new Error('No recent recordings');
+        const seg = await res.json();
+        // Go to recordings page at end_time minus a few seconds
+        const endTs = new Date(seg.end_time);
+        const rewindTs = new Date(endTs.getTime() - 10000); // 10s before end
+        window.location.href = `/static/recordings.html?camera_id=${camId}&ts=${encodeURIComponent(rewindTs.toISOString())}`;
+      } catch (e) {
+        alert('Could not rewind: ' + e.message);
+      }
     }
 
     function attachHlsStream(camId) {
@@ -1404,6 +2035,141 @@
       }
     }
 
+    function clearHlsRetry(camId) {
+      if (!hlsRetryTimers.has(camId)) return;
+      clearTimeout(hlsRetryTimers.get(camId));
+      hlsRetryTimers.delete(camId);
+    }
+
+    function scheduleHlsRetry(camId, callback) {
+      if (hlsRetryTimers.has(camId)) return;
+      const timer = setTimeout(() => {
+        hlsRetryTimers.delete(camId);
+        callback();
+      }, 5000);
+      hlsRetryTimers.set(camId, timer);
+    }
+
+    attachHlsStream = function (camId) {
+      const videoEl = document.getElementById(`video-${camId}`);
+      const placeholder = document.getElementById(`ph-${camId}`);
+      const liveBadge = document.getElementById(`live-badge-${camId}`);
+      const statusBadge = document.getElementById(`status-badge-${camId}`);
+      if (!videoEl) return;
+
+      const hlsUrl = `${MEDIAMTX_HLS_BASE}/${camId}/index.m3u8`;
+
+      if (Hls.isSupported()) {
+        if (hlsInstances.has(camId)) {
+          hlsInstances.get(camId).destroy();
+        }
+        clearHlsRetry(camId);
+
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true,
+          liveSyncDurationCount: 2,
+          liveMaxLatencyDurationCount: 5,
+          liveDurationInfinity: true,
+          manifestLoadingTimeOut: 10000,
+          manifestLoadingMaxRetry: 6,
+          manifestLoadingRetryDelay: 2000,
+        });
+
+        hlsInstances.set(camId, hls);
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(videoEl);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          clearHlsRetry(camId);
+          videoEl.play().catch(() => { });
+          if (placeholder) placeholder.style.display = 'none';
+          if (liveBadge) liveBadge.style.opacity = '1';
+          if (statusBadge) {
+            statusBadge.textContent = 'Live';
+            statusBadge.className = 'cam-status-badge online';
+          }
+        });
+
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (!data.fatal) return;
+
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            if (statusBadge) {
+              statusBadge.textContent = 'Recovering';
+              statusBadge.className = 'cam-status-badge connecting';
+            }
+            hls.recoverMediaError();
+            return;
+          }
+
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            hls.startLoad();
+          }
+
+          if (placeholder) {
+            placeholder.innerHTML = `
+              <div class="cam-ph-icon">ðŸ“¡</div>
+              <div class="cam-ph-text">Stream unavailable</div>
+              <div class="cam-ph-text" style="font-size:11px;opacity:0.6">Retrying in 5sâ€¦</div>`;
+            placeholder.style.display = 'flex';
+          }
+          if (liveBadge) liveBadge.style.opacity = '0';
+          if (statusBadge) {
+            statusBadge.textContent = 'Offline';
+            statusBadge.className = 'cam-status-badge offline';
+          }
+
+          scheduleHlsRetry(camId, () => {
+            if (placeholder) {
+              placeholder.innerHTML = `
+                <div class="cam-spinner"></div>
+                <div class="cam-ph-text">Reconnectingâ€¦</div>`;
+              placeholder.style.display = 'flex';
+            }
+            if (statusBadge) {
+              statusBadge.textContent = 'Connecting';
+              statusBadge.className = 'cam-status-badge connecting';
+            }
+            hls.destroy();
+            if (hlsInstances.get(camId) === hls) {
+              hlsInstances.delete(camId);
+            }
+            attachHlsStream(camId);
+          });
+        });
+        return;
+      }
+
+      if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+        videoEl.src = hlsUrl;
+        videoEl.addEventListener('loadedmetadata', () => {
+          clearHlsRetry(camId);
+          videoEl.play().catch(() => { });
+          if (placeholder) placeholder.style.display = 'none';
+          if (liveBadge) liveBadge.style.opacity = '1';
+          if (statusBadge) {
+            statusBadge.textContent = 'Live';
+            statusBadge.className = 'cam-status-badge online';
+          }
+        }, { once: true });
+        videoEl.addEventListener('error', () => {
+          if (statusBadge) {
+            statusBadge.textContent = 'Offline';
+            statusBadge.className = 'cam-status-badge offline';
+          }
+          scheduleHlsRetry(camId, () => attachHlsStream(camId));
+        }, { once: true });
+        return;
+      }
+
+      if (placeholder) {
+        placeholder.innerHTML = `
+          <div class="cam-ph-icon">âš ï¸</div>
+          <div class="cam-ph-text">HLS not supported in this browser</div>`;
+      }
+    };
+
     function toggleFullscreen(camId) {
       const tile = document.getElementById(`tile-${camId}`);
       if (!tile) return;
@@ -1421,9 +2187,36 @@
     }
 
     // ── Boot ──────────────────────────────────────────────────────────────────
-    connect();
-    loadCameras().then(() => buildCameraGrid(cameraList));
-    setInterval(loadCameras, 30000);
+    async function boot() {
+      await loadUiConfig(); // load MEDIAMTX_HLS_BASE from server before anything else
+      const me = await window.ArgusAuth.requireAuth();
+      if (!me) return;
+      currentUser = me;
+      document.getElementById('auth-user').textContent = `${me.username} (${me.role})`;
+      document.getElementById('logoutBtn').addEventListener('click', () => window.ArgusAuth.logout());
+      document.getElementById('users-refresh-btn').addEventListener('click', loadUsers);
+      document.getElementById('user-create-form').addEventListener('submit', createManagedUser);
+      if (me.role === 'ADMIN') {
+        document.getElementById('tab-users').style.display = '';
+        loadUsers();
+      }
+      connect();
+      loadCameras().then(() => buildCameraGrid(cameraList));
+      setInterval(loadCameras, 30000);
+
+      // Load and refresh system stats
+      loadSystemStats();
+      setInterval(loadSystemStats, 10000); // Refresh every 10 seconds
+    }
+
+    window.addEventListener('beforeunload', () => {
+      hlsInstances.forEach(instance => instance.destroy());
+      hlsInstances.clear();
+      hlsRetryTimers.forEach(timer => clearTimeout(timer));
+      hlsRetryTimers.clear();
+    });
+
+    boot();
   </script>
 </body>
 

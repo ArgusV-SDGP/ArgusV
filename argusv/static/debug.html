@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ArgusV · DB Debug Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #22263a;
+      --border: #2e3350;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --accent: #6366f1;
+      --green: #22c55e;
+      --red: #ef4444;
+      --orange: #f97316;
+      --yellow: #eab308;
+      --blue: #3b82f6;
+      --teal: #14b8a6;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header h1 { font-size: 16px; font-weight: 700; color: var(--text); }
+    .header .sub { font-size: 12px; color: var(--muted); }
+    .header .spacer { flex: 1; }
+    .pill {
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-weight: 600;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+    .pill.live { border-color: var(--green); color: var(--green); }
+    #last-refresh { font-size: 11px; color: var(--muted); }
+    .btn {
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 12px;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .btn:hover { background: var(--accent); border-color: var(--accent); }
+    .btn:disabled { opacity: .4; cursor: default; }
+
+    /* ── Layout ── */
+    .container { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
+
+    /* ── Stat cards ── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+    }
+    .stat-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+    .stat-card .value { font-size: 28px; font-weight: 700; line-height: 1; }
+    .stat-card .detail { font-size: 11px; color: var(--muted); margin-top: 6px; }
+    .stat-card .bar-bg { background: var(--surface2); border-radius: 4px; height: 4px; margin-top: 10px; overflow: hidden; }
+    .stat-card .bar-fill { height: 100%; border-radius: 4px; transition: width .5s; }
+
+    /* ── Tabs ── */
+    .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+    .tab {
+      padding: 8px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      color: var(--muted);
+      transition: all .15s;
+    }
+    .tab:hover { color: var(--text); background: var(--surface2); }
+    .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* ── Search / filter bar ── */
+    .toolbar { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; flex-wrap: wrap; }
+    .search {
+      flex: 1;
+      min-width: 200px;
+      padding: 7px 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+    }
+    .search:focus { border-color: var(--accent); }
+    .filter-select {
+      padding: 7px 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 12px;
+      outline: none;
+      cursor: pointer;
+    }
+    .count-badge { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+    /* ── Table ── */
+    .table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead th {
+      background: var(--surface2);
+      padding: 10px 12px;
+      text-align: left;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      white-space: nowrap;
+      border-bottom: 1px solid var(--border);
+    }
+    tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--surface2); }
+    td { padding: 10px 12px; vertical-align: top; }
+
+    /* ── Badges ── */
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .badge.HIGH    { background: rgba(239,68,68,.15); color: var(--red); }
+    .badge.MEDIUM  { background: rgba(249,115,22,.15); color: var(--orange); }
+    .badge.LOW     { background: rgba(100,116,139,.15); color: var(--muted); }
+    .badge.OPEN    { background: rgba(239,68,68,.12); color: var(--red); }
+    .badge.RESOLVED{ background: rgba(34,197,94,.12); color: var(--green); }
+    .badge.yes     { background: rgba(34,197,94,.12); color: var(--green); }
+    .badge.no      { background: rgba(239,68,68,.12); color: var(--red); }
+    .badge.person  { background: rgba(99,102,241,.15); color: var(--accent); }
+    .badge.car     { background: rgba(20,184,166,.15); color: var(--teal); }
+
+    /* ── Description cell ── */
+    .desc {
+      max-width: 380px;
+      color: var(--text);
+      line-height: 1.5;
+      cursor: pointer;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .desc.expanded {
+      display: block;
+      -webkit-line-clamp: unset;
+      overflow: visible;
+    }
+    .desc.none { color: var(--muted); font-style: italic; }
+
+    /* ── Thumbnail ── */
+    .thumb {
+      width: 80px;
+      height: 50px;
+      object-fit: cover;
+      border-radius: 5px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: transform .15s;
+    }
+    .thumb:hover { transform: scale(1.05); }
+    .thumb-placeholder {
+      width: 80px;
+      height: 50px;
+      border-radius: 5px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    /* ── Time cell ── */
+    .time { color: var(--muted); white-space: nowrap; font-size: 11px; }
+    .id-chip { font-family: monospace; font-size: 11px; color: var(--muted); }
+    .cam-chip { font-size: 11px; font-weight: 600; color: var(--blue); }
+    .zone-chip { font-size: 11px; color: var(--teal); }
+
+    /* ── Panel ── */
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* ── Lightbox ── */
+    #lightbox {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.85);
+      z-index: 999;
+      align-items: center;
+      justify-content: center;
+    }
+    #lightbox.open { display: flex; }
+    #lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 8px; }
+    #lightbox .close {
+      position: absolute; top: 20px; right: 24px;
+      font-size: 28px; color: #fff; cursor: pointer; line-height: 1;
+    }
+
+    /* ── Empty state ── */
+    .empty { text-align: center; padding: 48px; color: var(--muted); font-size: 14px; }
+
+    /* ── Error banner ── */
+    #error-banner {
+      display: none;
+      background: rgba(239,68,68,.15);
+      border: 1px solid var(--red);
+      border-radius: 8px;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      color: var(--red);
+    }
+
+    /* Loading spinner */
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div>
+    <h1>🛡 ArgusV · DB Debug Dashboard</h1>
+    <div class="sub">Live view of PostgreSQL — segments, detections, incidents, embeddings</div>
+  </div>
+  <div class="spacer"></div>
+  <span class="pill live">● DEV</span>
+  <span id="last-refresh">Never refreshed</span>
+  <button class="btn" id="refresh-btn" onclick="loadData()">↺ Refresh</button>
+  <select class="filter-select" id="auto-refresh-select" onchange="setAutoRefresh(this.value)">
+    <option value="0">Manual only</option>
+    <option value="15">Auto 15s</option>
+    <option value="30" selected>Auto 30s</option>
+    <option value="60">Auto 60s</option>
+  </select>
+</div>
+
+<!-- Lightbox -->
+<div id="lightbox">
+  <span class="close" onclick="closeLightbox()">✕</span>
+  <img id="lightbox-img" src="" alt="Thumbnail" />
+</div>
+
+<div class="container">
+
+  <!-- Error banner -->
+  <div id="error-banner"></div>
+
+  <!-- Stat cards -->
+  <div class="stats-grid" id="stats-grid">
+    <div class="stat-card">
+      <div class="label">Segments</div>
+      <div class="value" id="s-total">—</div>
+      <div class="detail" id="s-detail">Loading…</div>
+      <div class="bar-bg"><div class="bar-fill" id="s-bar" style="background:var(--teal);width:0%"></div></div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Detections</div>
+      <div class="value" id="d-total">—</div>
+      <div class="detail" id="d-detail">Loading…</div>
+      <div class="bar-bg"><div class="bar-fill" id="d-bar" style="background:var(--accent);width:0%"></div></div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Incidents</div>
+      <div class="value" id="i-total">—</div>
+      <div class="detail" id="i-detail">Loading…</div>
+      <div class="bar-bg"><div class="bar-fill" id="i-bar" style="background:var(--red);width:100%"></div></div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Embedding Coverage</div>
+      <div class="value" id="e-pct">—</div>
+      <div class="detail" id="e-detail">Loading…</div>
+      <div class="bar-bg"><div class="bar-fill" id="e-bar" style="background:var(--green);width:0%"></div></div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('segments', this)">📹 Segments</div>
+    <div class="tab" onclick="switchTab('detections', this)">🎯 Detections</div>
+    <div class="tab" onclick="switchTab('incidents', this)">🚨 Incidents</div>
+  </div>
+
+  <!-- ── Segments panel ── -->
+  <div class="panel active" id="panel-segments">
+    <div class="toolbar">
+      <input class="search" type="text" placeholder="Search descriptions, camera, zone…" oninput="filterTable('segments', this.value)" />
+      <select class="filter-select" onchange="filterEmbedding('segments', this.value)">
+        <option value="">All embedding</option>
+        <option value="yes">Has embedding ✓</option>
+        <option value="no">No embedding ✗</option>
+      </select>
+      <select class="filter-select" id="seg-cam-filter" onchange="filterTable('segments', document.querySelector('#panel-segments .search').value)">
+        <option value="">All cameras</option>
+      </select>
+      <span class="count-badge" id="seg-count"></span>
+    </div>
+    <div class="table-wrap">
+      <table id="tbl-segments">
+        <thead>
+          <tr>
+            <th>Thumb</th>
+            <th>ID</th>
+            <th>Camera</th>
+            <th>Start time</th>
+            <th>Duration</th>
+            <th>Description</th>
+            <th>Embed</th>
+            <th>Motion</th>
+            <th>Detections</th>
+            <th>Size</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-segments"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── Detections panel ── -->
+  <div class="panel" id="panel-detections">
+    <div class="toolbar">
+      <input class="search" type="text" placeholder="Search VLM summary, camera, zone, class…" oninput="filterTable('detections', this.value)" />
+      <select class="filter-select" onchange="filterThreat('detections', this.value)">
+        <option value="">All threats</option>
+        <option value="HIGH">HIGH</option>
+        <option value="MEDIUM">MEDIUM</option>
+        <option value="LOW">LOW</option>
+      </select>
+      <select class="filter-select" onchange="filterEmbedding('detections', this.value)">
+        <option value="">All embedding</option>
+        <option value="yes">Has embedding ✓</option>
+        <option value="no">No embedding ✗</option>
+      </select>
+      <select class="filter-select" id="det-cam-filter" onchange="filterTable('detections', document.querySelector('#panel-detections .search').value)">
+        <option value="">All cameras</option>
+      </select>
+      <span class="count-badge" id="det-count"></span>
+    </div>
+    <div class="table-wrap">
+      <table id="tbl-detections">
+        <thead>
+          <tr>
+            <th>Thumb</th>
+            <th>ID</th>
+            <th>Camera</th>
+            <th>Zone</th>
+            <th>Class</th>
+            <th>Confidence</th>
+            <th>Time</th>
+            <th>Dwell</th>
+            <th>Threat</th>
+            <th>VLM Summary</th>
+            <th>Embed</th>
+            <th>Incident</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-detections"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── Incidents panel ── -->
+  <div class="panel" id="panel-incidents">
+    <div class="toolbar">
+      <input class="search" type="text" placeholder="Search summary, camera, zone…" oninput="filterTable('incidents', this.value)" />
+      <select class="filter-select" onchange="filterThreat('incidents', this.value)">
+        <option value="">All threats</option>
+        <option value="HIGH">HIGH</option>
+        <option value="MEDIUM">MEDIUM</option>
+        <option value="LOW">LOW</option>
+      </select>
+      <select class="filter-select" onchange="filterStatus('incidents', this.value)">
+        <option value="">All status</option>
+        <option value="OPEN">OPEN</option>
+        <option value="RESOLVED">RESOLVED</option>
+      </select>
+      <span class="count-badge" id="inc-count"></span>
+    </div>
+    <div class="table-wrap">
+      <table id="tbl-incidents">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Camera</th>
+            <th>Zone</th>
+            <th>Class</th>
+            <th>Threat</th>
+            <th>Status</th>
+            <th>Summary</th>
+            <th>Detected</th>
+            <th>Resolved</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-incidents"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+  const API = 'http://localhost:8001'; // adjust if your backend runs on a different port
+  let _data = { segments: [], detections: [], incidents: [] };
+  let _filters = { segments: {}, detections: {}, incidents: {} };
+  let _autoTimer = null;
+
+  // ── Data loading ────────────────────────────────────────────────────────────
+
+  async function loadData() {
+    const btn = document.getElementById('refresh-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Loading…';
+
+    try {
+      const resp = await fetch(`${API}/api/debug/overview?limit=100`, {
+        headers: { 'Authorization': 'Bearer dev' } // DEV_AUTH_BYPASS ignores token
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+      const data = await resp.json();
+
+      hideError();
+      renderStats(data.stats);
+      _data.segments   = data.segments;
+      _data.detections = data.detections;
+      _data.incidents  = data.incidents;
+      populateCameraFilters();
+      applyFilters('segments');
+      applyFilters('detections');
+      applyFilters('incidents');
+
+      document.getElementById('last-refresh').textContent =
+        'Refreshed ' + new Date().toLocaleTimeString();
+    } catch(e) {
+      showError(`Failed to load: ${e.message} — is the ArgusV server running?`);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '↺ Refresh';
+    }
+  }
+
+  // ── Stats ────────────────────────────────────────────────────────────────────
+
+  function renderStats(s) {
+    const seg = s.segments, det = s.detections, inc = s.incidents;
+
+    document.getElementById('s-total').textContent   = seg.total;
+    document.getElementById('s-detail').textContent  =
+      `${seg.with_description} described · ${seg.with_embedding} embedded (${seg.coverage_pct}%)`;
+    document.getElementById('s-bar').style.width      = seg.coverage_pct + '%';
+
+    document.getElementById('d-total').textContent   = det.total;
+    document.getElementById('d-detail').textContent  =
+      `${det.with_vlm_summary} VLM · ${det.with_embedding} embedded (${det.coverage_pct}%) · ${det.high_threat} HIGH`;
+    document.getElementById('d-bar').style.width      = det.coverage_pct + '%';
+
+    document.getElementById('i-total').textContent   = inc.total;
+    document.getElementById('i-detail').textContent  =
+      `${inc.open} open · ${inc.high} HIGH severity`;
+
+    const avgPct = seg.total && det.total
+      ? Math.round((seg.coverage_pct + det.coverage_pct) / 2) : 0;
+    document.getElementById('e-pct').textContent   = avgPct + '%';
+    document.getElementById('e-detail').textContent =
+      `Segments: ${seg.coverage_pct}% · Detections: ${det.coverage_pct}%`;
+    document.getElementById('e-bar').style.width      = avgPct + '%';
+  }
+
+  // ── Camera filter dropdowns ──────────────────────────────────────────────────
+
+  function populateCameraFilters() {
+    const segCams  = [...new Set(_data.segments.map(r => r.camera_id).filter(Boolean))].sort();
+    const detCams  = [...new Set(_data.detections.map(r => r.camera_id).filter(Boolean))].sort();
+    fillSelect('seg-cam-filter', segCams);
+    fillSelect('det-cam-filter', detCams);
+  }
+
+  function fillSelect(id, values) {
+    const el = document.getElementById(id);
+    const cur = el.value;
+    el.innerHTML = '<option value="">All cameras</option>';
+    values.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = opt.textContent = v;
+      if (v === cur) opt.selected = true;
+      el.appendChild(opt);
+    });
+  }
+
+  // ── Filtering ────────────────────────────────────────────────────────────────
+
+  function filterTable(panel, text) {
+    _filters[panel].text = text.toLowerCase();
+    applyFilters(panel);
+  }
+  function filterThreat(panel, val)    { _filters[panel].threat = val;    applyFilters(panel); }
+  function filterEmbedding(panel, val) { _filters[panel].embed  = val;    applyFilters(panel); }
+  function filterStatus(panel, val)    { _filters[panel].status = val;    applyFilters(panel); }
+
+  function applyFilters(panel) {
+    const f = _filters[panel];
+    const text = (f.text || '').toLowerCase();
+    let rows = _data[panel];
+
+    if (text) {
+      rows = rows.filter(r => JSON.stringify(r).toLowerCase().includes(text));
+    }
+    if (f.threat) {
+      rows = rows.filter(r => r.threat_level === f.threat);
+    }
+    if (f.embed === 'yes') {
+      rows = rows.filter(r => r.has_embedding === true);
+    } else if (f.embed === 'no') {
+      rows = rows.filter(r => r.has_embedding === false);
+    }
+    if (f.status) {
+      rows = rows.filter(r => r.status === f.status);
+    }
+    // Camera filter from dropdown
+    const camSel = document.getElementById(panel === 'segments' ? 'seg-cam-filter' : 'det-cam-filter');
+    if (camSel && camSel.value) {
+      rows = rows.filter(r => r.camera_id === camSel.value);
+    }
+
+    if (panel === 'segments')   renderSegments(rows);
+    if (panel === 'detections') renderDetections(rows);
+    if (panel === 'incidents')  renderIncidents(rows);
+  }
+
+  // ── Renderers ────────────────────────────────────────────────────────────────
+
+  function thumb(url) {
+    if (!url) return `<div class="thumb-placeholder">📷</div>`;
+    const src = url.startsWith('http') ? url : `${API}${url}`;
+    return `<img class="thumb" src="${src}" loading="lazy"
+              onerror="this.outerHTML='<div class=\\'thumb-placeholder\\'>📷</div>'"
+              onclick="openLightbox('${src}')" />`;
+  }
+
+  function badge(val, cls) {
+    if (!val) return '<span style="color:var(--muted)">—</span>';
+    return `<span class="badge ${cls || val}">${val}</span>`;
+  }
+
+  function descCell(text, id) {
+    if (!text) return '<span class="desc none">No description</span>';
+    const safe = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<div class="desc" id="desc-${id}" onclick="toggleDesc('${id}')">${safe}</div>`;
+  }
+
+  function toggleDesc(id) {
+    document.getElementById(`desc-${id}`)?.classList.toggle('expanded');
+  }
+
+  function fmtTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return `<span class="time">${d.toLocaleDateString()} ${d.toLocaleTimeString()}</span>`;
+  }
+
+  function renderSegments(rows) {
+    document.getElementById('seg-count').textContent = `${rows.length} rows`;
+    const tbody = document.getElementById('tbody-segments');
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="10"><div class="empty">No segments found</div></td></tr>'; return; }
+    tbody.innerHTML = rows.map((r, i) => `
+      <tr>
+        <td>${thumb(r.thumbnail_url)}</td>
+        <td><span class="id-chip">${r.segment_id}</span></td>
+        <td><span class="cam-chip">${r.camera_id || '—'}</span></td>
+        <td>${fmtTime(r.start_time)}</td>
+        <td><span class="time">${r.duration_sec != null ? r.duration_sec + 's' : '—'}</span></td>
+        <td>${descCell(r.description, 'seg-' + i)}</td>
+        <td>${badge(r.has_embedding ? 'yes' : 'no')}</td>
+        <td>${r.has_motion ? '<span style="color:var(--teal)">●</span>' : '<span style="color:var(--muted)">○</span>'}</td>
+        <td style="text-align:center">${r.detection_count ?? '—'}</td>
+        <td><span class="time">${r.size_kb != null ? r.size_kb + ' KB' : '—'}</span></td>
+      </tr>
+    `).join('');
+  }
+
+  function renderDetections(rows) {
+    document.getElementById('det-count').textContent = `${rows.length} rows`;
+    const tbody = document.getElementById('tbody-detections');
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="12"><div class="empty">No detections found</div></td></tr>'; return; }
+    tbody.innerHTML = rows.map((r, i) => `
+      <tr>
+        <td>${thumb(r.thumbnail_url)}</td>
+        <td><span class="id-chip">${r.detection_id}</span></td>
+        <td><span class="cam-chip">${r.camera_id || '—'}</span></td>
+        <td><span class="zone-chip">${r.zone_name || '—'}</span></td>
+        <td>${badge(r.object_class, r.object_class)}</td>
+        <td><span class="time">${r.confidence != null ? (r.confidence * 100).toFixed(0) + '%' : '—'}</span></td>
+        <td>${fmtTime(r.detected_at)}</td>
+        <td><span class="time">${r.dwell_sec != null ? r.dwell_sec + 's' : '—'}</span></td>
+        <td>${badge(r.threat_level)}</td>
+        <td>${descCell(r.vlm_summary, 'det-' + i)}</td>
+        <td>${badge(r.has_embedding ? 'yes' : 'no')}</td>
+        <td><span class="id-chip">${r.incident_id || '—'}</span></td>
+      </tr>
+    `).join('');
+  }
+
+  function renderIncidents(rows) {
+    document.getElementById('inc-count').textContent = `${rows.length} rows`;
+    const tbody = document.getElementById('tbody-incidents');
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="9"><div class="empty">No incidents found</div></td></tr>'; return; }
+    tbody.innerHTML = rows.map((r, i) => `
+      <tr>
+        <td><span class="id-chip">${r.incident_id}</span></td>
+        <td><span class="cam-chip">${r.camera_id || '—'}</span></td>
+        <td><span class="zone-chip">${r.zone_name || '—'}</span></td>
+        <td>${badge(r.object_class, r.object_class)}</td>
+        <td>${badge(r.threat_level)}</td>
+        <td>${badge(r.status)}</td>
+        <td>${descCell(r.summary, 'inc-' + i)}</td>
+        <td>${fmtTime(r.detected_at)}</td>
+        <td>${fmtTime(r.resolved_at)}</td>
+      </tr>
+    `).join('');
+  }
+
+  // ── Tab switching ────────────────────────────────────────────────────────────
+
+  function switchTab(name, el) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById(`panel-${name}`).classList.add('active');
+  }
+
+  // ── Lightbox ─────────────────────────────────────────────────────────────────
+
+  function openLightbox(src) {
+    document.getElementById('lightbox-img').src = src;
+    document.getElementById('lightbox').classList.add('open');
+  }
+  function closeLightbox() {
+    document.getElementById('lightbox').classList.remove('open');
+  }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+
+  // ── Auto refresh ─────────────────────────────────────────────────────────────
+
+  function setAutoRefresh(sec) {
+    if (_autoTimer) clearInterval(_autoTimer);
+    if (parseInt(sec) > 0) _autoTimer = setInterval(loadData, parseInt(sec) * 1000);
+  }
+
+  // ── Error ─────────────────────────────────────────────────────────────────────
+
+  function showError(msg) {
+    const el = document.getElementById('error-banner');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+  function hideError() {
+    document.getElementById('error-banner').style.display = 'none';
+  }
+
+  // ── Boot ──────────────────────────────────────────────────────────────────────
+
+  setAutoRefresh(30);
+  loadData();
+</script>
+</body>
+</html>

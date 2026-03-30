@@ -13,18 +13,28 @@ import logging
 import time
 from pathlib import Path
 from contextlib import asynccontextmanager
+import config as cfg
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
 from bus import bus
 from api.ws_handler import manager
+from api.routes.auth import router as auth_router
 from api.routes.cameras import router as cameras_router
 from api.routes.zones import router as zones_router
 from api.routes.incidents import router as incidents_router
 from api.routes.recordings import router as recordings_router
 from api.routes.configuration import router as configuration_router
+from api.routes.rag import router as rag_router
+from api.routes.chat import router as chat_router
+from api.routes.users import router as users_router
+from api.routes.stats import router as stats_router
+from api.routes.metrics import router as metrics_router
+from api.routes.debug import router as debug_router
 from workers.edge_worker import start_cameras, stop_cameras, cameras_health
 from workers.pipeline_worker import (
     stream_ingestion_worker,
@@ -32,6 +42,12 @@ from workers.pipeline_worker import (
     decision_engine_worker,
     notification_worker,
 )
+from workers.rag_worker import rag_semantic_worker
+from workers.segment_vlm_worker import segment_vlm_worker
+from workers.snapshot_worker import snapshot_worker, clip_generation_worker
+from workers.cleanup_worker import cleanup_worker
+from workers.watchdog_worker import watchdog_worker
+from stats.emitter import get_stats, stats_emitter_worker
 
 logger = logging.getLogger("api.server")
 
@@ -43,10 +59,17 @@ async def lifespan(app: FastAPI):
     # ── Start all background workers ──────────────────────────────────────
     loop = asyncio.get_running_loop()
 
+    # Ensure recording directories exist before any worker starts
+    Path(cfg.LOCAL_RECORDINGS_DIR).mkdir(parents=True, exist_ok=True)
+    Path(cfg.SEGMENT_TMP_DIR).mkdir(parents=True, exist_ok=True)
+
     # Bootstrap DB schema (idempotent)
     from db.connection import create_tables
     create_tables()
     logger.info("✅ Database schema ready")
+
+    from db.seed import seed_dev_data
+    seed_dev_data()
 
     # Camera threads (sync → async bridge)
     start_cameras(bus.raw_detections, loop)
@@ -57,6 +80,13 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(vlm_inference_worker(),     name="vlm-inference"),
         asyncio.create_task(decision_engine_worker(),   name="decision-engine"),
         asyncio.create_task(notification_worker(),      name="notification"),
+        asyncio.create_task(rag_semantic_worker(),      name="rag-semantic"),
+        asyncio.create_task(segment_vlm_worker(),       name="segment-vlm"),
+        asyncio.create_task(snapshot_worker(),          name="snapshot-worker"),
+        asyncio.create_task(clip_generation_worker(),   name="clip-generator"),
+        asyncio.create_task(cleanup_worker(),           name="cleanup-worker"),
+        asyncio.create_task(watchdog_worker(),          name="watchdog"),
+        asyncio.create_task(stats_emitter_worker(),     name="stats-emitter"),
         asyncio.create_task(manager.fan_out_loop(bus.alerts_ws), name="ws-fanout"),
     ]
 
@@ -75,15 +105,36 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ArgusV", version="1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cfg.CORS_ALLOW_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.include_router(auth_router)
 app.include_router(cameras_router)
 app.include_router(zones_router)
 app.include_router(incidents_router)
 app.include_router(recordings_router)
 app.include_router(configuration_router)
+app.include_router(users_router)
+app.include_router(rag_router)
+app.include_router(chat_router)
+app.include_router(stats_router)
+app.include_router(metrics_router)
+app.include_router(debug_router)
 
-# ── Mount static files ────────────────────────────────────────────────────────
+# ── Mount static & media files ────────────────────────────────────────────────
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# Mount video recordings for playback (NVR Data Plane)
+# Serves /recordings/{cam_id}/*.ts
+# Create dir eagerly so the mount always succeeds (even if empty at startup)
+RECORDINGS_PATH = Path(cfg.LOCAL_RECORDINGS_DIR).resolve()
+RECORDINGS_PATH.mkdir(parents=True, exist_ok=True)
+app.mount("/recordings", StaticFiles(directory=str(RECORDINGS_PATH)), name="recordings")
 
 
 # ── Dashboard HTML ────────────────────────────────────────────────────────────
@@ -123,7 +174,19 @@ async def health():
         "uptime_sec": round(time.time() - _START_TIME, 1),
     }
 
+@app.get("/api/stats")
+async def api_stats(_user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR))):
+    return get_stats()
+
 _START_TIME = time.time()
+
+
+def _resolve_detection_thumbnail_url(det) -> str | None:
+    if det.thumbnail_url:
+        return det.thumbnail_url
+    if not det.camera_id or not det.event_id:
+        return None
+    return f"/recordings/snapshots/{det.camera_id}/{det.camera_id}_{det.event_id}.jpg"
 
 
 # ── REST: Recordings + Incidents (from replay_api.py logic) ──────────────────
@@ -134,6 +197,7 @@ async def list_incidents(
     threat_level: str  = None,
     status:       str  = None,
     limit:        int  = 50,
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
 ):
     from db.connection import get_db_sync
     from db.models import Incident
@@ -167,6 +231,7 @@ async def search_detections(
     object_class: str   = None,
     threats_only: bool  = False,
     limit:        int   = 100,
+    _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
 ):
     from db.connection import get_db_sync
     from db.models import Detection
@@ -191,6 +256,7 @@ async def search_detections(
                 "dwell_sec":     d.dwell_sec,
                 "event_type":    d.event_type,
                 "detected_at":   d.detected_at.isoformat(),
+                "thumbnail_url": _resolve_detection_thumbnail_url(d),
                 "bbox":          {"x1": d.bbox_x1, "y1": d.bbox_y1, "x2": d.bbox_x2, "y2": d.bbox_y2},
             }
             for d in dets

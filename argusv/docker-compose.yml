@@ -6,20 +6,20 @@ services:
 
   argusv:
     build:
-      context: .. # services/ — so edge-gateway/src is reachable
-      dockerfile: argusv/Dockerfile
-      network: host # use WSL host DNS during apt-get (fixes WSL2 DNS bug)
+      context: .
+      dockerfile: Dockerfile
     container_name: argusv
     ports:
-      - "8000:8000" # Dashboard at http://localhost:8000
+      - "8003:8000" # Dashboard at http://localhost:8000
     environment:
       # ── Infrastructure ──────────────────────
       POSTGRES_URL: postgresql://argus:password@postgres:5432/argus_db
       REDIS_URL: redis://redis:6379/0
 
-      # ── Camera (single cam, override with CAMERAS for multi) ───
-      CAMERA_ID: "cam-01"
-      RTSP_URL: "rtsp://mediamtx:8554/cam-01"
+      # ── Camera ──────────────────────────────────
+      # Inside Docker, cameras reach MediaMTX at "mediamtx".
+      # Default CAMERAS config auto-generates cam-01 + cam-02 using RTSP_HOST.
+      RTSP_HOST: "mediamtx"
 
       # ── Detection ────────────────────────────
       DETECT_FPS: "5"
@@ -32,22 +32,37 @@ services:
       EMBED_FRAME: "true"
 
       # ── Recording ────────────────────────────
-      RECORDINGS_ENABLED: "false" # enable when MinIO or local disk ready
+      RECORDINGS_ENABLED: "true"  
       SEGMENT_TMP_DIR: "/tmp/argus_segments"
+      LOCAL_RECORDINGS_DIR: "/recordings"
 
       # ── VLM ──────────────────────────────────
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       USE_TIERED_VLM: "true"
       VLM_MAX_WORKERS: "2"
+      GENAI_PROVIDER: ${GENAI_PROVIDER:-openai}
+      SEGMENT_VLM_PROVIDER: ${SEGMENT_VLM_PROVIDER:-openai}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+      GEMINI_VISION_MODEL: ${GEMINI_VISION_MODEL:-gemini-2.0-flash}
 
       # ── Notifications ─────────────────────────
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
-      SLACK_CHANNEL_ID: "#argus-alerts"
+      SLACK_CHANNEL_ID: ${SLACK_CHANNEL_ID:-#argus-alerts}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
 
-      LOG_LEVEL: "INFO"
+      # ── Frontend / MediaMTX ───────────────────
+      MEDIAMTX_HLS_BASE: ${MEDIAMTX_HLS_BASE:-http://localhost:8888}
+
+      # ── Auth ──────────────────────────────────
+      DEV_AUTH_BYPASS: ${DEV_AUTH_BYPASS:-false}
+
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
     volumes:
-      - /tmp/argus_segments:/tmp/argus_segments
+      - ${ARGUSV_SEGMENTS_DIR:-./tmp/argus_segments}:/tmp/argus_segments
+      - ${ARGUSV_RECORDINGS_DIR:-./recordings}:/recordings
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,7 +71,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:15-alpine
+    image: pgvector/pgvector:pg15
     container_name: argus-postgres
     environment:
       POSTGRES_USER: argus
@@ -66,9 +81,8 @@ services:
       - "5433:5432" # host:container — avoids conflict with existing postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ../../configs/db:/docker-entrypoint-initdb.d
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U argus" ]
+      test: [ "CMD-SHELL", "pg_isready -U argus -d argus_db" ]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -100,11 +114,48 @@ services:
       MTX_RTSPADDRESS: :8554
       MTX_WEBRTCADDRESS: :8889
       MTX_HLSALWAYSREMUX: "yes"
-      MTX_HLSSEGMENTCOUNT: "3"
+      MTX_HLSSEGMENTCOUNT: "7"
       MTX_HLSSEGMENTDURATION: 2s
       MTX_HLSALLOWORIGIN: "*"
       MTX_LOGLEVEL: info
       MTX_API: "yes"
+
+  # ── Demo RTSP stream simulators ─────────────────────────────────────────
+  # Push looping video to MediaMTX so demo cameras have something to show.
+  # Replace with real camera RTSP URLs in production by setting CAMERAS env.
+  rtsp-sim-cam01:
+    image: jrottenberg/ffmpeg:5.1-alpine
+    platform: linux/amd64
+    container_name: argus-rtsp-sim-cam01
+    depends_on:
+      - mediamtx
+    restart: unless-stopped
+    volumes:
+      - ${ARGUSV_VIDEOS_DIR:-./tmp}:/videos:ro
+    command: >
+      -re -stream_loop -1
+      -i "/videos/demo.mp4"
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -an
+      -f rtsp -rtsp_transport tcp
+      rtsp://mediamtx:8554/cam-01
+
+  rtsp-sim-cam02:
+    image: jrottenberg/ffmpeg:5.1-alpine
+    platform: linux/amd64
+    container_name: argus-rtsp-sim-cam02
+    depends_on:
+      - mediamtx
+    restart: unless-stopped
+    volumes:
+      - ${ARGUSV_VIDEOS_DIR:-./tmp}:/videos:ro
+    command: >
+      -re -stream_loop -1
+      -i "/videos/demo2.mp4"
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -an
+      -f rtsp -rtsp_transport tcp
+      rtsp://mediamtx:8554/cam-02
 
 volumes:
   postgres_data:

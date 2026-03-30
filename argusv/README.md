@@ -88,7 +88,7 @@ LOITER_THRESHOLD_SEC=30
 RECORDINGS_ENABLED=false
 
 # ── DB / Redis (defaults match docker-compose.dev.yml) ─
-POSTGRES_URL=postgresql://argus:password@localhost:5433/argus_db
+POSTGRES_URL=postgresql://argus:password@localhost:5434/argus_db
 REDIS_URL=redis://localhost:6380/0
 ```
 
@@ -107,7 +107,7 @@ docker compose -f docker-compose.dev.yml up -d
 ```
 
 This starts:
-- **PostgreSQL** → `localhost:5433`
+- **PostgreSQL** → `localhost:5434`
 - **Redis** → `localhost:6380`
 - **MediaMTX** (RTSP/HLS broker) → RTSP `localhost:8554`, HLS `localhost:8888`
 
@@ -145,13 +145,13 @@ Apply the Alembic schema migrations against the dev Postgres:
 alembic upgrade head
 ```
 
-> `alembic.ini` is pre-configured to connect to `localhost:5433/argus_db` (the dev container port).
+> `alembic.ini` is pre-configured to connect to `localhost:5434/argus_db` (the dev container port).
 
 ### Step 4 — Start the App Server
 
 ```bash
 # From the argusv/ directory
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload --app-dir src
+uvicorn main:app --host 127.0.0.1 --port 8000 --app-dir src
 ```
 
 The app will be available at:
@@ -179,7 +179,7 @@ Services exposed:
 | Service | Host Port | Description |
 |---|---|---|
 | ArgusV API | `8000` | Dashboard + REST API |
-| PostgreSQL | `5433` | Avoids conflict with local Postgres |
+| PostgreSQL | `5434` | Avoids conflict with local Postgres |
 | Redis | `6380` | Avoids conflict with local Redis |
 | MediaMTX RTSP | `8554` | RTSP camera input |
 | MediaMTX HLS | `8888` | HLS stream output for dashboard |
@@ -223,6 +223,9 @@ All database schema changes are managed via Alembic.
 # Apply all pending migrations
 alembic upgrade head
 
+# Check for multiple heads before creating a revision
+alembic heads
+
 # Create a new migration after editing models
 alembic revision --autogenerate -m "describe your change"
 
@@ -233,7 +236,14 @@ alembic downgrade -1
 alembic current
 ```
 
-> **Dev Note:** `alembic.ini` points to `localhost:5433` (dev compose port). In Docker, the app uses the internal `postgres:5432` address from the `POSTGRES_URL` env var.
+If `alembic heads` shows more than one head, merge them before creating new revisions:
+
+```bash
+alembic merge -m "merge heads" <head_1> <head_2>
+alembic upgrade head
+```
+
+> **Dev Note:** `alembic.ini` points to `localhost:5434` (dev compose port). In Docker, the app uses the internal `postgres:5432` address from the `POSTGRES_URL` env var.
 
 ---
 
@@ -295,7 +305,7 @@ When `CAMERAS` is set, the single `CAMERA_ID` / `RTSP_URL` variables are ignored
 
 ### Port conflicts
 The dev compose uses non-standard host ports to avoid conflicts:
-- Postgres binds to `5433` (not `5432`)
+- Postgres binds to `5434` (not `5432`)
 - Redis binds to `6380` (not `6379`)
 
 ### WSL 2 DNS issues on Windows
@@ -311,9 +321,18 @@ docker compose -f docker-compose.dev.yml ps
 ```
 
 ### Alembic can't connect
-Ensure your `.env` has the correct `POSTGRES_URL` pointing to `localhost:5433` for local dev:
+Ensure your `.env` has the correct `POSTGRES_URL` pointing to `localhost:5434` for local dev:
 ```env
-POSTGRES_URL=postgresql://argus:password@localhost:5433/argus_db
+POSTGRES_URL=postgresql://argus:password@localhost:5434/argus_db
+```
+
+### pgvector extension not available
+If migrations fail with `extension "vector" is not available`, your running Postgres container was created from a non-pgvector image.
+Recreate the dev DB container with the pgvector-enabled image:
+```bash
+docker compose -f docker-compose.dev.yml down -v
+docker compose -f docker-compose.dev.yml up -d
+alembic upgrade head
 ```
 
 ---
