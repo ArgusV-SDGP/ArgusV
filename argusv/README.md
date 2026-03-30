@@ -262,6 +262,26 @@ pytest tests/test_api.py -v
 
 ---
 
+## 📐 Zone API Quick Reference
+
+Zone CRUD routes are served from `src/api/routes/zones.py`.
+
+```http
+GET    /api/zones
+GET    /api/zones/{zone_id}
+POST   /api/zones
+PUT    /api/zones/{zone_id}
+PATCH  /api/zones/{zone_id}
+DELETE /api/zones/{zone_id}
+DELETE /api/zones
+```
+
+Notes:
+- `DELETE /api/zones` removes all zones, clears camera and incident `zone_id` references, deletes zone rules, and publishes Redis zone update events.
+- `POST`/`PUT`/`PATCH` validate zone polygons and normalize class allow-lists.
+
+---
+
 ## 🔑 Key Environment Variables Reference
 
 | Variable | Default | Description |
