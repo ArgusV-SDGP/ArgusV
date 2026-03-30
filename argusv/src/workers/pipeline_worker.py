@@ -10,6 +10,7 @@ All three stages run in the same event loop — no network hops.
 import asyncio
 import logging
 import time
+import uuid
 from datetime import datetime, timezone
 import json
 import base64
@@ -309,6 +310,13 @@ async def _process_decision(event: dict):
             det_ts = datetime.fromtimestamp(event.get("timestamp", time.time()), timezone.utc).replace(tzinfo=None)
             thumbnail_url = _build_snapshot_url(event.get("camera_id"), event.get("event_id"))
 
+            # Sanitize zone_id: the fallback zone uses "default" (not a UUID); pass None instead
+            raw_zone_id = event.get("zone_id")
+            try:
+                zone_uuid = uuid.UUID(str(raw_zone_id)) if raw_zone_id else None
+            except (ValueError, AttributeError):
+                zone_uuid = None
+
             # Find the segment that covers this detection's timestamp
             seg_result = await db.execute(
                 select(Segment.segment_id)
@@ -327,7 +335,7 @@ async def _process_decision(event: dict):
                 detected_at  = det_ts,
                 object_class = event.get("object_class", ""),
                 confidence   = event.get("confidence", 0.0),
-                zone_id      = event.get("zone_id"),
+                zone_id      = zone_uuid,
                 zone_name    = event.get("zone_name"),
                 event_type   = event.get("event_type"),
                 track_id     = event.get("track_id"),
@@ -348,7 +356,7 @@ async def _process_decision(event: dict):
             if is_threat and threat_level in ("HIGH", "MEDIUM"):
                 inc = Incident(
                     camera_id    = event.get("camera_id"),
-                    zone_id      = event.get("zone_id"),
+                    zone_id      = zone_uuid,
                     zone_name    = event.get("zone_name"),
                     object_class = event.get("object_class"),
                     threat_level = threat_level,

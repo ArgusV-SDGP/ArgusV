@@ -378,15 +378,25 @@
         const statusSpan = document.getElementById('video-status');
         const tlIndicator = document.getElementById('tl-indicator');
 
+        // Parse a naive UTC ISO string (no Z/offset) as UTC, not local time
+        function parseUTC(s) {
+            if (!s) return null;
+            if (typeof s === 'number') return new Date(s);
+            const str = String(s);
+            return new Date(str.endsWith('Z') || str.includes('+') || str.includes('-', 10) ? str : str + 'Z');
+        }
+
         function setPlaybackWindow(segments = [], fallbackStart = null, fallbackEnd = null) {
             playlistSegments = Array.isArray(segments) ? segments : [];
             if (playlistSegments.length > 0) {
-                playbackWindow.start = new Date(playlistSegments[0].start_time);
-                playbackWindow.end = new Date(playlistSegments[playlistSegments.length - 1].end_time);
+                playbackWindow.start = parseUTC(playlistSegments[0].start_time);
+                playbackWindow.end = parseUTC(playlistSegments[playlistSegments.length - 1].end_time);
+                // Pre-seed wall-clock so seeking works before first FRAG_CHANGED
+                if (!playlistStartWallClock) playlistStartWallClock = playbackWindow.start;
                 return;
             }
-            playbackWindow.start = fallbackStart ? new Date(fallbackStart) : null;
-            playbackWindow.end = fallbackEnd ? new Date(fallbackEnd) : null;
+            playbackWindow.start = fallbackStart ? parseUTC(fallbackStart) : null;
+            playbackWindow.end = fallbackEnd ? parseUTC(fallbackEnd) : null;
         }
 
         // Initialize Date picker to today
@@ -500,11 +510,16 @@
             const selectedDate = datePicker.value;
             if (!selectedDate) return;
 
-            const startStr = `${selectedDate}T00:00:00`;
-            const endStr   = `${selectedDate}T23:59:59`;
+            // DB stores all timestamps as naive UTC. Convert the selected local
+            // calendar day to its UTC boundaries so the query matches what's stored.
+            const localMidnight = new Date(`${selectedDate}T00:00:00`);   // local midnight
+            const localEndOfDay = new Date(`${selectedDate}T23:59:59.999`); // local end of day
+            // toISOString() gives UTC with Z; slice off Z so FastAPI treats as naive UTC
+            const startStr = localMidnight.toISOString().slice(0, 19);
+            const endStr   = localEndOfDay.toISOString().slice(0, 19);
 
-            currentWindow.start = new Date(startStr);
-            currentWindow.end   = new Date(endStr);
+            currentWindow.start = localMidnight;
+            currentWindow.end   = localEndOfDay;
 
             document.getElementById('tl-start-lbl').textContent = '00:00';
             document.getElementById('tl-end-lbl').textContent   = '23:59';
@@ -560,8 +575,8 @@
 
                 currentCam = data.camera_id;
                 camSelector.value = currentCam;
-                currentWindow.start = new Date(data.window.start);
-                currentWindow.end   = new Date(data.window.end);
+                currentWindow.start = parseUTC(data.window.start);
+                currentWindow.end   = parseUTC(data.window.end);
                 setPlaybackWindow(data.segments || [], data.window.start, data.window.end);
 
                 document.getElementById('tl-start-lbl').textContent = currentWindow.start.toLocaleTimeString();
@@ -588,7 +603,8 @@
         // â”€â”€ HLS Playlist loader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         function loadPlaylist(url, segments = []) {
             statusSpan.textContent = 'Loading segmentsâ€¦';
-            playlistStartWallClock = segments.length > 0 ? new Date(segments[0].start_time) : null;
+            // Reset so FRAG_CHANGED can update it accurately once playback starts
+            playlistStartWallClock = segments.length > 0 ? parseUTC(segments[0].start_time) : null;
 
             if (Hls.isSupported()) {
                 if (hls) hls.destroy();
@@ -597,8 +613,8 @@
                     maxBufferLength: 60,
                     // Use XHR loader so auth cookies/headers propagate
                     xhrSetup: function (xhr) {
-                        // If there's a token in session storage, attach it
-                        const token = sessionStorage.getItem('argus_token');
+                        // Attach JWT token if present (matches auth.js storage key)
+                        const token = localStorage.getItem('argusv_access_token');
                         if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
                     },
                 });
@@ -680,7 +696,7 @@
             const spanMs = currentWindow.end.getTime() - currentWindow.start.getTime();
 
             markers.forEach(mark => {
-                const dt = new Date(mark.timestamp).getTime();
+                const dt = parseUTC(mark.timestamp).getTime();
                 if (dt >= currentWindow.start.getTime() && dt <= currentWindow.end.getTime()) {
                     const pct = ((dt - currentWindow.start.getTime()) / spanMs) * 100;
                     const blip = document.createElement('div');
@@ -738,7 +754,7 @@
             }
 
             const activeMarkers = markers.filter(m => {
-                const mkMs = new Date(m.timestamp).getTime();
+                const mkMs = parseUTC(m.timestamp).getTime();
                 return Math.abs(mkMs - currentWallMs) <= 1500;
             });
 
