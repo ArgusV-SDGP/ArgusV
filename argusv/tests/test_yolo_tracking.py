@@ -20,11 +20,27 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from workers.edge_worker import (
     MotionGate,
     DwellTracker,
+    CameraDetectConfig,
     ZoneMatcher,
     DetectLoop,
     FrameBuffer,
     CameraWorker
 )
+
+
+def _make_detect_cfg(camera_id: str = "cam-01") -> CameraDetectConfig:
+    return CameraDetectConfig(
+        camera_id=camera_id,
+        detect_classes={0: "person"},
+        conf_threshold=0.45,
+        detect_fps=5,
+        motion_threshold=0.003,
+        use_motion_gate=False,
+        use_tracker=False,
+        loiter_sec=30,
+        track_update_sec=10,
+        track_evict_sec=5,
+    )
 
 
 class TestMotionGate:
@@ -378,7 +394,7 @@ class TestZoneMatcher:
         matcher._polygon_cache["zone-01"] = Polygon([[0.2, 0.2], [0.8, 0.2], [0.8, 0.8], [0.2, 0.8]])
 
         # Test point inside zone
-        result = matcher.match(0.5, 0.5)
+        result = matcher.match(0.5, 0.5, "person")
 
         assert result is not None
         assert result["id"] == "zone-01"
@@ -396,7 +412,7 @@ class TestZoneMatcher:
         matcher._polygon_cache["zone-01"] = Polygon([[0.2, 0.2], [0.4, 0.2], [0.4, 0.4], [0.2, 0.4]])
 
         # Test point outside zone
-        result = matcher.match(0.9, 0.9)
+        result = matcher.match(0.9, 0.9, "person")
 
         # Should return None (outside all zones)
         assert result is None
@@ -411,7 +427,7 @@ class TestZoneMatcher:
         matcher._polygon_cache["zone-01"] = Polygon([[0.2, 0.2], [0.8, 0.2], [0.8, 0.8], [0.2, 0.8]])
 
         # Point on left boundary x=0.2
-        result = matcher.match(0.2, 0.5)
+        result = matcher.match(0.2, 0.5, "person")
         assert result is not None
         assert result["id"] == "zone-01"
 
@@ -422,7 +438,7 @@ class TestZoneMatcher:
         matcher._polygon_cache = {}
         matcher._camera_zone_map = {}
 
-        result = matcher.match(0.5, 0.5)
+        result = matcher.match(0.5, 0.5, "person")
 
         assert result is not None
         assert result["id"] == "default"
@@ -442,7 +458,7 @@ class TestZoneMatcher:
         matcher._polygon_cache["zone-02"] = Polygon([[0.4, 0.4], [0.9, 0.4], [0.9, 0.9], [0.4, 0.9]])
 
         # Point in overlap area
-        result = matcher.match(0.5, 0.5)
+        result = matcher.match(0.5, 0.5, "person")
 
         # Should match one of them
         assert result is not None
@@ -461,10 +477,10 @@ class TestZoneMatcher:
         matcher._camera_zone_map["cam-01"] = {"zone-01"}
 
         # Point is inside zone-02, but cam-01 is bound to zone-01, so should be dropped.
-        assert matcher.match(0.7, 0.7, camera_id="cam-01") is None
+        assert matcher.match(0.7, 0.7, "person", camera_id="cam-01") is None
 
         # Point inside zone-01 should match.
-        result = matcher.match(0.2, 0.2, camera_id="cam-01")
+        result = matcher.match(0.2, 0.2, "person", camera_id="cam-01")
         assert result is not None
         assert result["id"] == "zone-01"
 
@@ -487,7 +503,7 @@ class TestDetectLoop:
             with patch('config.USE_MOTION_GATE', True):
                 with patch('config.USE_TRACKER', True):
                     detect_loop = DetectLoop(
-                        "cam-01",
+                        _make_detect_cfg("cam-01"),
                         frame_buffer,
                         bus_queue,
                         loop,
@@ -496,8 +512,7 @@ class TestDetectLoop:
 
                     assert detect_loop.camera_id == "cam-01"
                     assert detect_loop._model == mock_model
-                    assert detect_loop._motion_gate is not None
-                    assert detect_loop._dwell is not None
+                    assert detect_loop._dwell is None
 
     @patch('workers.edge_worker.YOLO')
     def test_start_creates_thread(self, mock_yolo_class):
@@ -515,7 +530,7 @@ class TestDetectLoop:
         with patch('config.USE_MOTION_GATE', False):
             with patch('config.USE_TRACKER', False):
                 detect_loop = DetectLoop(
-                    "cam-01",
+                    _make_detect_cfg("cam-01"),
                     frame_buffer,
                     bus_queue,
                     loop,
@@ -554,7 +569,7 @@ class TestDetectLoop:
                 with patch('config.USE_TRACKER', False):
                     with patch('config.DETECT_FPS', 10):
                         detect_loop = DetectLoop(
-                            "cam-01",
+                            _make_detect_cfg("cam-01"),
                             frame_buffer,
                             bus_queue,
                             loop,
@@ -589,7 +604,7 @@ class TestDetectLoop:
         with patch('config.USE_MOTION_GATE', False):
             with patch('config.USE_TRACKER', False):
                 detect_loop = DetectLoop(
-                    "cam-01",
+                    _make_detect_cfg("cam-01"),
                     frame_buffer,
                     bus_queue,
                     loop,
@@ -622,6 +637,7 @@ class TestCameraWorker:
             worker = CameraWorker(
                 "cam-01",
                 "rtsp://test",
+                _make_detect_cfg("cam-01"),
                 bus_queue,
                 loop,
                 zone_matcher
@@ -647,6 +663,7 @@ class TestCameraWorker:
             worker = CameraWorker(
                 "cam-01",
                 "rtsp://test",
+                _make_detect_cfg("cam-01"),
                 bus_queue,
                 loop,
                 zone_matcher
@@ -671,6 +688,7 @@ class TestCameraWorker:
             worker = CameraWorker(
                 "cam-01",
                 "rtsp://test",
+                _make_detect_cfg("cam-01"),
                 bus_queue,
                 loop,
                 zone_matcher

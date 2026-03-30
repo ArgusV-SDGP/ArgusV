@@ -410,12 +410,18 @@ class ZoneMatcher:
             with engine.connect() as conn:
                 try:
                     rows = conn.execute(
-                        text("SELECT zone_id, camera_id, name, polygon_coords, dwell_threshold_sec, active FROM zones")
+                        text(
+                            "SELECT zone_id, camera_id, name, polygon_coords, dwell_threshold_sec, active, allowed_classes "
+                            "FROM zones"
+                        )
                     ).fetchall()
                 except Exception:
                     # Backward compatibility before zones.camera_id migration is applied.
                     rows = conn.execute(
-                        text("SELECT zone_id, NULL as camera_id, name, polygon_coords, dwell_threshold_sec, active FROM zones")
+                        text(
+                            "SELECT zone_id, NULL as camera_id, name, polygon_coords, dwell_threshold_sec, active, "
+                            "NULL as allowed_classes FROM zones"
+                        )
                     ).fetchall()
             
             new_zones = {}
@@ -432,7 +438,7 @@ class ZoneMatcher:
                     else r.polygon_coords
                 )
                 # allowed_classes: list of label strings, or None = allow all
-                allowed = r.allowed_classes
+                allowed = getattr(r, "allowed_classes", None)
                 if isinstance(allowed, str):
                     allowed = json.loads(allowed)
                 new_zones[z_id] = {
@@ -547,6 +553,26 @@ class ZoneMatcher:
                 # Fallback to full reload for unexpected formats
                 threading.Thread(target=self._load_from_db, daemon=True).start()
 
+    def _zone_is_full_frame(self, zone: dict) -> bool:
+        name = str(zone.get("name") or "").strip().lower()
+        return name in {"full frame", "fullframe"}
+
+    def _zone_allows_object_class(self, zone: dict, object_class: str) -> bool:
+        allowed = zone.get("allowed_classes")
+        if allowed is None:
+            return True
+        return object_class in allowed
+
+    def _ordered_zone_ids(self, zone_ids: list[str]) -> list[str]:
+        def _sort_key(z_id: str):
+            zone = self._zones.get(z_id, {})
+            poly = self._polygon_cache.get(z_id)
+            is_full = self._zone_is_full_frame(zone)
+            area = poly.area if poly is not None else 1.0
+            # Prioritize specific zones first, then larger fallback-like areas.
+            return (1 if is_full else 0, area)
+        return sorted(zone_ids, key=_sort_key)
+
     def match(self, cx_norm: float, cy_norm: float, object_class: str, camera_id: Optional[str] = None) -> Optional[dict]:
         """
         Return the first zone whose polygon contains (cx_norm, cy_norm) AND
@@ -560,34 +586,26 @@ class ZoneMatcher:
         with self._lock:
             camera_zone_ids = self._camera_zone_map.get(camera_id, set()) if camera_id else set()
 
-            # If camera has scoped zones, enforce that scope.
-            if camera_zone_ids:
-                for z_id in camera_zone_ids:
-                    poly = self._polygon_cache.get(z_id)
-                    if poly is None:
-                        continue
-                    try:
-                        if poly.covers(pt):
-                            self._stats["matched"] += 1
-                            return self._zones.get(z_id)
-                    except Exception:
-                        continue
-                self._stats["outside_dropped"] += 1
-                return None
+            candidate_ids = (
+                self._ordered_zone_ids(list(camera_zone_ids))
+                if camera_zone_ids
+                else self._ordered_zone_ids(list(self._polygon_cache.keys()))
+            )
 
-            # Check cached polygons first (O(N) but shapely is fast)
-            for z_id, poly in self._polygon_cache.items():
+            # If camera has scoped zones, enforce that scope with zone-first priority.
+            for z_id in candidate_ids:
+                poly = self._polygon_cache.get(z_id)
+                zone = self._zones.get(z_id)
+                if poly is None or zone is None:
+                    continue
                 try:
-                    if poly.covers(pt):
-                        self._stats["matched"] += 1
-                        return self._zones[z_id]
+                    if not poly.covers(pt):
+                        continue
                 except Exception:
                     continue
-                zone = self._zones[z_id]
-                allowed = zone.get("allowed_classes")
-                # allowed=None means "accept all classes"
-                if allowed is not None and object_class not in allowed:
-                    return None
+                if not self._zone_allows_object_class(zone, object_class):
+                    continue
+                self._stats["matched"] += 1
                 return zone
 
             # Fallback when no zones are configured
