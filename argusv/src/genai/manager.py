@@ -184,8 +184,60 @@ class OpenAIProvider:
     """GPT-4o-mini triage → GPT-4o full analysis (default)."""
 
     async def describe(self, event: dict) -> dict:
-        from workers.pipeline_worker import _call_openai
-        return await _call_openai(event)
+        frames_b64 = []
+        if event.get("trigger_frame_b64"):
+            frames_b64.append(event["trigger_frame_b64"])
+
+        if not cfg.OPENAI_API_KEY:
+            return {"threat_level": "UNKNOWN", "is_threat": False, "summary": "No API key"}
+
+        headers = {
+            "Authorization": f"Bearer {cfg.OPENAI_API_KEY}",
+            "Content-Type":  "application/json",
+        }
+
+        triage_prompt, full_prompt = await _build_prompts_async(event)
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            # Triage call (cheap)
+            msgs = [{"role": "user", "content": triage_prompt}]
+            if cfg.USE_TIERED_VLM and frames_b64:
+                msgs = [{"role": "user", "content": [
+                    {"type": "text",      "text": triage_prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{frames_b64[0]}", "detail": "low"}},
+                ]}]
+
+            resp = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json={"model": cfg.VLM_TRIAGE_MODEL, "messages": msgs, "max_tokens": 10},
+            )
+            resp.raise_for_status()
+            triage = resp.json()["choices"][0]["message"]["content"].strip().upper()
+
+            if triage == "NO" and cfg.USE_TIERED_VLM:
+                return {"threat_level": "LOW", "is_threat": False, "summary": "Triage: not suspicious"}
+
+            # Full analysis call
+            content_parts = [{"type": "text", "text": full_prompt}]
+            if frames_b64:
+                content_parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{frames_b64[0]}", "detail": "high"},
+                })
+
+            resp2 = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json={"model": cfg.VLM_MODEL, "messages": [{"role": "user", "content": content_parts}], "max_tokens": 200},
+            )
+            resp2.raise_for_status()
+            content = resp2.json()["choices"][0]["message"]["content"].strip()
+
+            m = re.search(r"\{.*\}", content, re.DOTALL)
+            if m:
+                return json.loads(m.group())
+            return {"threat_level": "MEDIUM", "is_threat": True, "summary": content[:200]}
 
 
 # ── Gemini ────────────────────────────────────────────────────────────────────

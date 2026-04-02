@@ -1,35 +1,27 @@
 """
 output/birdseye.py — BirdsEye overview renderer
 -------------------------------------------------
-Frigate equivalent: frigate/output/birdseye.py
-
 Renders a top-down "birds-eye" view showing all
 camera zones and active tracked objects in one frame.
 
-In ArgusV this can be:
-  1. A canvas API endpoint → GET /api/birdseye (JPEG/PNG)
-  2. A WebSocket stream showing live positions
-  3. A static SVG diagram updated on each detection
-
-TODO DLIVE-08: implement
+GET /api/birdseye → JPEG snapshot of current positions.
 """
 
 import logging
+import time
 import cv2
 import numpy as np
 
 logger = logging.getLogger("output.birdseye")
+
+# Tracks older than this (seconds) are evicted automatically on render
+_STALE_TRACK_SEC = 30
 
 
 class BirdsEyeRenderer:
     """
     Renders a composite overview of all camera zones.
     Active tracks appear as coloured dots.
-
-    Frigate: renders a physical floorplan + camera positions.
-    ArgusV simplification: grid of zone rectangles with active objects.
-
-    TODO DLIVE-08
     """
 
     WIDTH  = 1280
@@ -38,8 +30,7 @@ class BirdsEyeRenderer:
 
     def __init__(self, cameras: list[dict]):
         self.cameras  = cameras
-        self._frame   = np.full((self.HEIGHT, self.WIDTH, 3), self.BG, dtype=np.uint8)
-        self._objects: dict[int, dict] = {}   # track_id → {x,y,label,threat}
+        self._objects: dict[int, dict] = {}   # track_id → {x,y,label,threat,last_seen}
 
     def update_object(self, track_id: int, norm_x: float, norm_y: float,
                       label: str, threat_level: str):
@@ -47,18 +38,26 @@ class BirdsEyeRenderer:
         self._objects[track_id] = {
             "x": norm_x, "y": norm_y,
             "label": label, "threat": threat_level,
-            "last_seen": 0,
+            "last_seen": time.monotonic(),
         }
 
     def remove_object(self, track_id: int):
         self._objects.pop(track_id, None)
 
+    def _evict_stale(self):
+        """Remove tracks that have not been updated within _STALE_TRACK_SEC."""
+        cutoff = time.monotonic() - _STALE_TRACK_SEC
+        stale = [tid for tid, obj in self._objects.items() if obj["last_seen"] < cutoff]
+        for tid in stale:
+            del self._objects[tid]
+
     def render(self) -> bytes:
         """Render current frame as JPEG bytes."""
+        self._evict_stale()
+
         frame = np.full((self.HEIGHT, self.WIDTH, 3), self.BG, dtype=np.uint8)
 
         # Draw grid of camera zones
-        # TODO DLIVE-08: draw actual zone polygons per camera
         n = max(len(self.cameras), 1)
         cols = min(n, 3)
         rows = (n + cols - 1) // cols

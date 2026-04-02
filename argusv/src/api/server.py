@@ -42,7 +42,6 @@ from workers.pipeline_worker import (
     vlm_inference_worker,
     decision_engine_worker,
     notification_worker,
-    birdseye_renderer,
 )
 from workers.rag_worker import rag_semantic_worker
 from workers.segment_vlm_worker import segment_vlm_worker
@@ -189,13 +188,8 @@ async def api_stats(_user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATO
 _START_TIME = time.time()
 
 
-@app.get("/api/stats")
-async def stats():
-    return get_stats()
-
-
 @app.get("/api/birdseye")
-async def birdseye_snapshot():
+async def birdseye_snapshot(_user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER))):
     """Return current birds-eye JPEG frame."""
     from workers import pipeline_worker
     renderer = pipeline_worker.birdseye_renderer

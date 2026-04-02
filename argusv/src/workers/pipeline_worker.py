@@ -12,7 +12,6 @@ import logging
 import time
 import uuid
 from datetime import datetime, timezone
-import json
 import base64
 from typing import Optional
 
@@ -195,69 +194,6 @@ async def _run_vlm(event: dict):
             })
 
 
-async def _call_openai(event: dict) -> dict:
-    """Tiered GPT-4o-mini triage → GPT-4o full analysis."""
-    import httpx
-
-    frames_b64 = []
-    if event.get("trigger_frame_b64"):
-        frames_b64.append(event["trigger_frame_b64"])
-
-    if not cfg.OPENAI_API_KEY:
-        return {"threat_level": "UNKNOWN", "is_threat": False, "summary": "No API key"}
-
-    headers = {
-        "Authorization": f"Bearer {cfg.OPENAI_API_KEY}",
-        "Content-Type":  "application/json",
-    }
-
-    from genai.manager import _build_prompts_async
-    triage_prompt, full_prompt = await _build_prompts_async(event)
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        # Triage call (cheap)
-        msgs = [{"role": "user", "content": triage_prompt}]
-        if cfg.USE_TIERED_VLM and frames_b64:
-            msgs = [{"role": "user", "content": [
-                {"type": "text",      "text": triage_prompt},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{frames_b64[0]}", "detail": "low"}},
-            ]}]
-
-        resp = await client.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers=headers,
-            json={"model": cfg.VLM_TRIAGE_MODEL, "messages": msgs, "max_tokens": 10},
-        )
-        resp.raise_for_status()
-        triage = resp.json()["choices"][0]["message"]["content"].strip().upper()
-
-        if triage == "NO" and cfg.USE_TIERED_VLM:
-            return {"threat_level": "LOW", "is_threat": False, "summary": "Triage: not suspicious"}
-
-        # Full analysis call
-        content_parts = [{"type": "text", "text": full_prompt}]
-        if frames_b64:
-            content_parts.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{frames_b64[0]}", "detail": "high"},
-            })
-
-        resp2 = await client.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers=headers,
-            json={"model": cfg.VLM_MODEL, "messages": [{"role": "user", "content": content_parts}], "max_tokens": 200},
-        )
-        resp2.raise_for_status()
-        content = resp2.json()["choices"][0]["message"]["content"].strip()
-
-        # Parse JSON response
-        import re
-        m = re.search(r"\{.*\}", content, re.DOTALL)
-        if m:
-            return json.loads(m.group())
-        return {"threat_level": "MEDIUM", "is_threat": True, "summary": content[:200]}
-
-
 # ── Stage 3: Decision Engine ─────────────────────────────────────────────────
 # Consumes vlm_results → writes to DB → puts on actions
 # (Replaces decision-engine Kafka consumer)
@@ -390,11 +326,13 @@ async def _process_decision(event: dict):
             birdseye_renderer.remove_object(track_id)
         else:
             bbox = event.get("bbox", {})
-            # Compute normalised centre from bbox
+            # Compute normalised centre from bbox using actual frame dimensions
             x1, y1 = bbox.get("x1", 0), bbox.get("y1", 0)
             x2, y2 = bbox.get("x2", 1), bbox.get("y2", 1)
-            norm_x = ((x1 + x2) / 2) / 1920  # assume 1920 width
-            norm_y = ((y1 + y2) / 2) / 1080  # assume 1080 height
+            fw = event.get("frame_w") or 1920
+            fh = event.get("frame_h") or 1080
+            norm_x = ((x1 + x2) / 2) / fw
+            norm_y = ((y1 + y2) / 2) / fh
             birdseye_renderer.update_object(
                 track_id,
                 max(0.0, min(1.0, norm_x)),
