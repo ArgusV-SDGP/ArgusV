@@ -1,7 +1,7 @@
 """add camera_id to zones
 
 Revision ID: 2c7f9f19b6a1
-Revises: 1c5dc0706bdb
+Revises: 0005_detection_config
 Create Date: 2026-03-20 03:35:00.000000
 """
 
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "2c7f9f19b6a1"
-down_revision: Union[str, Sequence[str], None] = "1c5dc0706bdb"
+down_revision: Union[str, Sequence[str], None] = "0005_detection_config"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

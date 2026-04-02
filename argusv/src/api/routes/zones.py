@@ -31,6 +31,9 @@ class ZoneCreate(BaseModel):
     polygon_coords: list[list[float]]
     zone_type: str = "security"
     dwell_threshold_sec: int = Field(default=30, ge=1)
+    # Per-zone object class allow-list. null = accept all globally configured classes.
+    # Example: ["person"] for entrance zone, ["car","truck","bus"] for parking lot.
+    allowed_classes: Optional[list[str]] = None
     active: bool = True
 
 
@@ -63,6 +66,7 @@ class ZonePatch(BaseModel):
     polygon_coords: Optional[list[list[float]]] = None
     zone_type: Optional[str] = None
     dwell_threshold_sec: Optional[int] = Field(default=None, ge=1)
+    allowed_classes: Optional[list[str]] = None  # set to [] to clear (allow all)
     active: Optional[bool] = None
 
 
@@ -74,10 +78,11 @@ def _parse_zone(zone: Zone, rules: list[Rule] | None = None) -> dict[str, Any]:
         "polygon_coords": zone.polygon_coords,
         "zone_type": zone.zone_type,
         "dwell_threshold_sec": zone.dwell_threshold_sec,
-        "active": zone.active,
-        "created_at": zone.created_at.isoformat() if zone.created_at else None,
-        "updated_at": zone.updated_at.isoformat() if zone.updated_at else None,
-        "rules": [_parse_rule(r) for r in (rules or [])],
+        "allowed_classes":    zone.allowed_classes,  # null = all classes allowed
+        "active":             zone.active,
+        "created_at":         zone.created_at.isoformat() if zone.created_at else None,
+        "updated_at":         zone.updated_at.isoformat() if zone.updated_at else None,
+        "rules":              [_parse_rule(r) for r in (rules or [])],
     }
 
 
@@ -197,6 +202,7 @@ def create_zone(
         polygon_coords=polygon_coords,
         zone_type=payload.zone_type,
         dwell_threshold_sec=payload.dwell_threshold_sec,
+        allowed_classes=payload.allowed_classes or None,
         active=payload.active,
     )
     db.add(zone)
@@ -226,6 +232,7 @@ def update_zone(
     zone.polygon_coords = _validate_polygon(payload.polygon_coords)
     zone.zone_type = payload.zone_type
     zone.dwell_threshold_sec = payload.dwell_threshold_sec
+    zone.allowed_classes = payload.allowed_classes or None
     zone.active = payload.active
     zone.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
@@ -263,6 +270,9 @@ def patch_zone(
         zone.dwell_threshold_sec = data["dwell_threshold_sec"]
     if "active" in data and data["active"] is not None:
         zone.active = data["active"]
+    if "allowed_classes" in data:
+        # [] means clear (allow all) → store as None; non-empty list stored as-is
+        zone.allowed_classes = data["allowed_classes"] or None
 
     zone.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()

@@ -10,6 +10,8 @@ Attempts to restart the dead CameraWorker thread.
 
 import asyncio
 import logging
+import os
+import shutil
 import time
 from collections import defaultdict
 
@@ -95,6 +97,7 @@ async def _check_cameras():
 async def _check_disk():
     """
     Warn when recordings directory >80% full OR >10GB used.
+    Warn when recordings directory exceeds threshold.
     Task WATCH-05
     """
     import shutil
@@ -102,7 +105,10 @@ async def _check_disk():
 
     # Use the same path as cleanup worker
     recordings_dir = cfg.LOCAL_RECORDINGS_DIR
-    if os.path.exists(recordings_dir):
+    if not os.path.exists(recordings_dir):
+        logger.debug("[Watchdog] Recordings dir %s not found — skipping disk check", recordings_dir)
+        return
+    try:
         usage = shutil.disk_usage(recordings_dir)
         pct = usage.used / usage.total
         used_gb = usage.used / (1024**3)
@@ -113,6 +119,16 @@ async def _check_disk():
             logger.warning(f"[Watchdog] Disk usage at {pct:.0%} ({used_gb:.1f}GB used) for {recordings_dir} — cleanup needed")
         elif used_gb > 10.0:
             logger.info(f"[Watchdog] Recordings using {used_gb:.1f}GB — consider cleanup")
+        pct = (usage.used / usage.total) * 100
+        if pct > cfg.WATCHDOG_DISK_WARN_PCT:
+            logger.warning(
+                "[Watchdog] Disk %.0f%% full (threshold %d%%) — cleanup needed",
+                pct, cfg.WATCHDOG_DISK_WARN_PCT,
+            )
+        else:
+            logger.debug("[Watchdog] Disk usage %.0f%% — OK", pct)
+    except Exception as e:
+        logger.warning(f"[Watchdog] Disk check failed: {e}")
 
 
 async def _check_queue_depth():

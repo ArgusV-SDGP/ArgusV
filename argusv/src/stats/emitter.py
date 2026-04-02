@@ -22,8 +22,17 @@ import os
 import time
 import psutil
 from pathlib import Path
+from typing import Dict
 
 logger = logging.getLogger("stats")
+
+# Lazy import to avoid circular dependency — set by main.py or server.py
+_bus = None
+
+
+def set_bus(bus):
+    global _bus
+    _bus = bus
 
 _stats: dict = {
     "detections_total":    0,
@@ -79,6 +88,7 @@ def get_stats() -> dict:
         "cpu_pct":      proc.cpu_percent(interval=0.1),
         "rss_mb":       round(mem.rss / 1e6, 1),
         "disk":         disk,
+        "queue_depths": _bus.stats() if _bus else {},
     }
 
 

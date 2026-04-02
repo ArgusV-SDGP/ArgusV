@@ -9,6 +9,7 @@ and returns:
     {"threat_level": "HIGH|MEDIUM|LOW", "is_threat": bool, "summary": str}
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -32,19 +33,20 @@ _THREAT_RUBRIC = (
 )
 
 _FULL_PROMPT_TMPL = (
-    "You are a security analyst reviewing camera footage. "
-    "A {object_class} was detected in '{zone_name}' (dwell: {dwell_sec}s, type: {event_type}). "
+    "You are a security analyst examining a single surveillance camera frame. "
+    "Context: {object_class} detected in zone '{zone_name}' (dwell: {dwell_sec}s, trigger: {event_type}). "
     f"{_THREAT_RUBRIC} "
-    "Analyse this scene. Respond with ONLY valid JSON: "
-    '{"threat_level":"HIGH|MEDIUM|LOW","is_threat":true|false,'
-    '"summary":"<1 sentence>","recommended_action":"ALERT|MONITOR|IGNORE"}'
+    "Describe only what is directly visible in this frame — do not speculate about events before or after. "
+    "Respond with ONLY valid JSON (no markdown): "
+    '{{"threat_level":"HIGH|MEDIUM|LOW","is_threat":true|false,'
+    '"summary":"<one sentence: who/what is visible and where>","recommended_action":"ALERT|MONITOR|IGNORE"}}'
 )
 
 _TRIAGE_PROMPT_TMPL = (
-    "Security camera alert: {object_class} detected in '{zone_name}'. "
-    "Event type: {event_type}. Dwell time: {dwell_sec}s. "
+    "Security camera frame: {object_class} detected in zone '{zone_name}'. "
+    "Trigger: {event_type}. Dwell: {dwell_sec}s. "
     f"{_THREAT_RUBRIC} "
-    "Is this worth escalating? Reply ONE word: YES or NO."
+    "Is this worth a full analysis? Reply ONE word: YES or NO."
 )
 
 
@@ -56,6 +58,67 @@ def _build_prompts(event: dict) -> tuple[str, str]:
         "event_type":   event.get("event_type", "DETECTED"),
     }
     return _TRIAGE_PROMPT_TMPL.format(**ctx), _FULL_PROMPT_TMPL.format(**ctx)
+
+
+async def _load_prompt(key: str, default: str) -> str:
+    """
+    Load a prompt string from Redis cache (TTL=60s) → RagConfig DB → fallback default.
+    Keys stored in RagConfig with group='prompts' and value=json.dumps("<string>").
+    """
+    redis_key = f"argus:prompt:{key}"
+    try:
+        import redis.asyncio as aioredis
+        r = aioredis.from_url(cfg.REDIS_URL, decode_responses=True)
+        try:
+            cached = await r.get(redis_key)
+            if cached:
+                return cached
+        finally:
+            await r.aclose()
+
+        def _db_lookup() -> Optional[str]:
+            from db.connection import get_db_sync
+            from db.models import RagConfig
+            db = get_db_sync()
+            try:
+                row = db.query(RagConfig).filter(
+                    RagConfig.key == key,
+                    RagConfig.group == "prompts"
+                ).first()
+                if row and row.value:
+                    v = json.loads(row.value)
+                    return v if isinstance(v, str) else None
+                return None
+            finally:
+                db.close()
+
+        value = await asyncio.to_thread(_db_lookup)
+        if value:
+            r2 = aioredis.from_url(cfg.REDIS_URL, decode_responses=True)
+            try:
+                await r2.setex(redis_key, 60, value)
+            finally:
+                await r2.aclose()
+            return value
+    except Exception as e:
+        logger.debug(f"[Prompts] _load_prompt({key}) unavailable: {e}")
+    return default
+
+
+async def _build_prompts_async(event: dict) -> tuple[str, str]:
+    """Async version of _build_prompts — loads templates from DB/Redis with 60s cache."""
+    triage_tmpl = await _load_prompt("vlm.triage_prompt", _TRIAGE_PROMPT_TMPL)
+    full_tmpl   = await _load_prompt("vlm.analysis_prompt", _FULL_PROMPT_TMPL)
+    ctx = {
+        "object_class": event.get("object_class", "unknown"),
+        "zone_name":    event.get("zone_name", "unknown"),
+        "dwell_sec":    event.get("dwell_sec", 0),
+        "event_type":   event.get("event_type", "DETECTED"),
+    }
+    try:
+        return triage_tmpl.format(**ctx), full_tmpl.format(**ctx)
+    except KeyError:
+        return _TRIAGE_PROMPT_TMPL.format(**ctx), _FULL_PROMPT_TMPL.format(**ctx)
 
 
 def _normalize_threat_payload(payload: dict) -> dict:
@@ -121,8 +184,60 @@ class OpenAIProvider:
     """GPT-4o-mini triage → GPT-4o full analysis (default)."""
 
     async def describe(self, event: dict) -> dict:
-        from workers.pipeline_worker import _call_openai
-        return await _call_openai(event)
+        frames_b64 = []
+        if event.get("trigger_frame_b64"):
+            frames_b64.append(event["trigger_frame_b64"])
+
+        if not cfg.OPENAI_API_KEY:
+            return {"threat_level": "UNKNOWN", "is_threat": False, "summary": "No API key"}
+
+        headers = {
+            "Authorization": f"Bearer {cfg.OPENAI_API_KEY}",
+            "Content-Type":  "application/json",
+        }
+
+        triage_prompt, full_prompt = await _build_prompts_async(event)
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            # Triage call (cheap)
+            msgs = [{"role": "user", "content": triage_prompt}]
+            if cfg.USE_TIERED_VLM and frames_b64:
+                msgs = [{"role": "user", "content": [
+                    {"type": "text",      "text": triage_prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{frames_b64[0]}", "detail": "low"}},
+                ]}]
+
+            resp = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json={"model": cfg.VLM_TRIAGE_MODEL, "messages": msgs, "max_tokens": 10},
+            )
+            resp.raise_for_status()
+            triage = resp.json()["choices"][0]["message"]["content"].strip().upper()
+
+            if triage == "NO" and cfg.USE_TIERED_VLM:
+                return {"threat_level": "LOW", "is_threat": False, "summary": "Triage: not suspicious"}
+
+            # Full analysis call
+            content_parts = [{"type": "text", "text": full_prompt}]
+            if frames_b64:
+                content_parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{frames_b64[0]}", "detail": "high"},
+                })
+
+            resp2 = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json={"model": cfg.VLM_MODEL, "messages": [{"role": "user", "content": content_parts}], "max_tokens": 200},
+            )
+            resp2.raise_for_status()
+            content = resp2.json()["choices"][0]["message"]["content"].strip()
+
+            m = re.search(r"\{.*\}", content, re.DOTALL)
+            if m:
+                return json.loads(m.group())
+            return {"threat_level": "MEDIUM", "is_threat": True, "summary": content[:200]}
 
 
 # ── Gemini ────────────────────────────────────────────────────────────────────
@@ -141,7 +256,7 @@ class GeminiProvider:
             logger.warning("[Gemini] GEMINI_API_KEY not set")
             return {"threat_level": "UNKNOWN", "is_threat": False, "summary": "No Gemini API key"}
 
-        triage_prompt, full_prompt = _build_prompts(event)
+        triage_prompt, full_prompt = await _build_prompts_async(event)
         frame_b64: Optional[str] = event.get("trigger_frame_b64")
 
         async with httpx.AsyncClient(timeout=30) as client:
@@ -201,7 +316,7 @@ class OllamaProvider:
     """
 
     async def describe(self, event: dict) -> dict:
-        _, full_prompt = _build_prompts(event)
+        _, full_prompt = await _build_prompts_async(event)
         frame_b64: Optional[str] = event.get("trigger_frame_b64")
 
         payload: dict = {
@@ -239,7 +354,7 @@ class LlamaCppProvider:
     """
 
     async def describe(self, event: dict) -> dict:
-        _, full_prompt = _build_prompts(event)
+        _, full_prompt = await _build_prompts_async(event)
         frame_b64: Optional[str] = event.get("trigger_frame_b64")
 
         content: list[dict] | str
