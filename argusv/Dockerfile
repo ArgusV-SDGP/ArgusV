@@ -13,11 +13,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Python deps
 COPY pyproject.toml .
-RUN pip install --no-cache-dir uv && uv pip install . --system
+# Install CPU-only torch first — prevents ultralytics from pulling the CUDA
+# version (~6 GB) which is unnecessary since we have no GPU in the container.
+RUN pip install --no-cache-dir uv \
+ && uv pip install --system torch torchvision --index-url https://download.pytorch.org/whl/cpu \
+ && uv pip install --system .
 
 # Copy monolith source
 COPY src/ ./src/
 COPY static/ ./static/
+COPY alembic/ ./alembic/
+COPY alembic.ini .
 
 ENV PYTHONPATH="/app/src"
 

@@ -244,6 +244,35 @@ class TestDwellTracker:
         assert events[1]["event_type"] == "LOITERING"
         assert events[1]["dwell_sec"] >= 2
 
+    def test_per_zone_loiter_threshold_override(self):
+        """Track should use zone-specific loiter threshold when provided."""
+        events = []
+
+        def on_event(event):
+            events.append(event)
+
+        tracker = DwellTracker(
+            on_event=on_event,
+            camera_id="cam-01",
+            loiter_threshold_sec=30,  # global default, should be overridden
+            update_interval_sec=10
+        )
+
+        event = {
+            "event_id": "evt-001",
+            "camera_id": "cam-01",
+            "track_id": 1,
+            "zone_id": "zone-01",
+            "zone_name": "Restricted Area"
+        }
+
+        tracker.update(1, "zone-01", "Restricted Area", event, loiter_threshold_sec=1)
+        time.sleep(1.2)
+        tracker.update(1, "zone-01", "Restricted Area", event, loiter_threshold_sec=1)
+
+        assert len(events) == 2
+        assert events[1]["event_type"] == "LOITERING"
+
     def test_track_eviction(self):
         """Test that tracks are evicted after inactivity"""
         events = []
@@ -322,8 +351,10 @@ class TestZoneMatcher:
         mock_conn.execute.return_value.fetchall.return_value = [
             MagicMock(
                 zone_id="zone-01",
+                camera_id=None,
                 name="Entrance",
                 polygon_coords=[[0.2, 0.2], [0.4, 0.2], [0.4, 0.4], [0.2, 0.4]],
+                dwell_threshold_sec=30,
                 active=True
             )
         ]
@@ -338,6 +369,9 @@ class TestZoneMatcher:
     def test_match_point_inside_zone(self):
         """Test matching a point inside a zone"""
         matcher = ZoneMatcher()
+        matcher._zones = {}
+        matcher._polygon_cache = {}
+        matcher._camera_zone_map = {}
 
         # Manually add a test zone (square)
         matcher._zones["zone-01"] = {"id": "zone-01", "name": "Test Zone", "polygon_coords": [[0.2, 0.2], [0.8, 0.2], [0.8, 0.8], [0.2, 0.8]]}
@@ -353,6 +387,9 @@ class TestZoneMatcher:
     def test_match_point_outside_zone(self):
         """Test matching a point outside all zones"""
         matcher = ZoneMatcher()
+        matcher._zones = {}
+        matcher._polygon_cache = {}
+        matcher._camera_zone_map = {}
 
         # Add test zone
         matcher._zones["zone-01"] = {"id": "zone-01", "name": "Test Zone", "polygon_coords": [[0.2, 0.2], [0.4, 0.2], [0.4, 0.4], [0.2, 0.4]]}
@@ -364,10 +401,26 @@ class TestZoneMatcher:
         # Should return None (outside all zones)
         assert result is None
 
+    def test_match_point_on_boundary_is_included(self):
+        """Boundary points should match (covers), not be dropped."""
+        matcher = ZoneMatcher()
+        matcher._zones = {}
+        matcher._polygon_cache = {}
+        matcher._camera_zone_map = {}
+        matcher._zones["zone-01"] = {"id": "zone-01", "name": "Test Zone", "polygon_coords": [[0.2, 0.2], [0.8, 0.2], [0.8, 0.8], [0.2, 0.8]]}
+        matcher._polygon_cache["zone-01"] = Polygon([[0.2, 0.2], [0.8, 0.2], [0.8, 0.8], [0.2, 0.8]])
+
+        # Point on left boundary x=0.2
+        result = matcher.match(0.2, 0.5)
+        assert result is not None
+        assert result["id"] == "zone-01"
+
     def test_default_zone_when_no_zones_defined(self):
         """Test that default zone is returned when no zones exist"""
         matcher = ZoneMatcher()
         matcher._zones = {}  # No zones
+        matcher._polygon_cache = {}
+        matcher._camera_zone_map = {}
 
         result = matcher.match(0.5, 0.5)
 
@@ -378,6 +431,9 @@ class TestZoneMatcher:
     def test_multiple_zones_returns_first_match(self):
         """Test with overlapping zones (returns first match)"""
         matcher = ZoneMatcher()
+        matcher._zones = {}
+        matcher._polygon_cache = {}
+        matcher._camera_zone_map = {}
 
         # Add two overlapping zones
         matcher._zones["zone-01"] = {"id": "zone-01", "name": "Zone 1", "polygon_coords": [[0.1, 0.1], [0.6, 0.1], [0.6, 0.6], [0.1, 0.6]]}
@@ -391,6 +447,26 @@ class TestZoneMatcher:
         # Should match one of them
         assert result is not None
         assert result["id"] in ["zone-01", "zone-02"]
+
+    def test_camera_zone_binding_scopes_matching(self):
+        """If camera is assigned to a zone, only that zone is considered."""
+        matcher = ZoneMatcher()
+        matcher._zones = {}
+        matcher._polygon_cache = {}
+        matcher._camera_zone_map = {}
+        matcher._zones["zone-01"] = {"id": "zone-01", "name": "Zone 1", "polygon_coords": [[0.1, 0.1], [0.4, 0.1], [0.4, 0.4], [0.1, 0.4]]}
+        matcher._zones["zone-02"] = {"id": "zone-02", "name": "Zone 2", "polygon_coords": [[0.6, 0.6], [0.9, 0.6], [0.9, 0.9], [0.6, 0.9]]}
+        matcher._polygon_cache["zone-01"] = Polygon([[0.1, 0.1], [0.4, 0.1], [0.4, 0.4], [0.1, 0.4]])
+        matcher._polygon_cache["zone-02"] = Polygon([[0.6, 0.6], [0.9, 0.6], [0.9, 0.9], [0.6, 0.9]])
+        matcher._camera_zone_map["cam-01"] = {"zone-01"}
+
+        # Point is inside zone-02, but cam-01 is bound to zone-01, so should be dropped.
+        assert matcher.match(0.7, 0.7, camera_id="cam-01") is None
+
+        # Point inside zone-01 should match.
+        result = matcher.match(0.2, 0.2, camera_id="cam-01")
+        assert result is not None
+        assert result["id"] == "zone-01"
 
 
 class TestDetectLoop:

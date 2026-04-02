@@ -17,12 +17,13 @@ import config as cfg
 
 from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
 from bus import bus
 from api.ws_handler import manager
+from stats.emitter import get_stats, set_bus
 from api.routes.auth import router as auth_router
 from api.routes.cameras import router as cameras_router
 from api.routes.zones import router as zones_router
@@ -34,6 +35,7 @@ from api.routes.chat import router as chat_router
 from api.routes.users import router as users_router
 from api.routes.stats import router as stats_router
 from api.routes.metrics import router as metrics_router
+from api.routes.debug import router as debug_router
 from workers.edge_worker import start_cameras, stop_cameras, cameras_health
 from workers.pipeline_worker import (
     stream_ingestion_worker,
@@ -42,6 +44,7 @@ from workers.pipeline_worker import (
     notification_worker,
 )
 from workers.rag_worker import rag_semantic_worker
+from workers.segment_vlm_worker import segment_vlm_worker
 from workers.snapshot_worker import snapshot_worker, clip_generation_worker
 from workers.cleanup_worker import cleanup_worker
 from workers.watchdog_worker import watchdog_worker
@@ -50,6 +53,9 @@ from stats.emitter import get_stats, stats_emitter_worker
 logger = logging.getLogger("api.server")
 
 STATIC_DIR = Path(__file__).parent.parent.parent / "static"
+
+# Track application start time for uptime reporting
+APP_STARTED_AT: float = time.time()
 
 
 @asynccontextmanager
@@ -66,6 +72,9 @@ async def lifespan(app: FastAPI):
     create_tables()
     logger.info("✅ Database schema ready")
 
+    # Wire bus into stats emitter for queue depth reporting
+    set_bus(bus)
+
     from db.seed import seed_dev_data
     seed_dev_data()
 
@@ -79,6 +88,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(decision_engine_worker(),   name="decision-engine"),
         asyncio.create_task(notification_worker(),      name="notification"),
         asyncio.create_task(rag_semantic_worker(),      name="rag-semantic"),
+        asyncio.create_task(segment_vlm_worker(),       name="segment-vlm"),
         asyncio.create_task(snapshot_worker(),          name="snapshot-worker"),
         asyncio.create_task(clip_generation_worker(),   name="clip-generator"),
         asyncio.create_task(cleanup_worker(),           name="cleanup-worker"),
@@ -120,6 +130,7 @@ app.include_router(rag_router)
 app.include_router(chat_router)
 app.include_router(stats_router)
 app.include_router(metrics_router)
+app.include_router(debug_router)
 
 # ── Mount static & media files ────────────────────────────────────────────────
 if STATIC_DIR.exists():
@@ -175,6 +186,37 @@ async def api_stats(_user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATO
     return get_stats()
 
 _START_TIME = time.time()
+
+
+@app.get("/api/birdseye")
+async def birdseye_snapshot(_user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER))):
+    """Return current birds-eye JPEG frame."""
+    from workers import pipeline_worker
+    renderer = pipeline_worker.birdseye_renderer
+    if renderer is None:
+        return Response(content=b"", media_type="image/jpeg", status_code=503)
+    return Response(content=renderer.render(), media_type="image/jpeg")
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+async def prometheus_metrics():
+    s = get_stats()
+    lines = [
+        f'argusv_detections_total {s["detections_total"]}',
+        f'argusv_vlm_calls_total {s["vlm_calls"]}',
+        f'argusv_vlm_latency_avg_ms {s["vlm_latency_avg_ms"]:.1f}',
+        f'argusv_alerts_sent_total {s["alerts_sent"]}',
+        f'argusv_uptime_seconds {s["uptime_sec"]:.0f}',
+        f'argusv_cpu_percent {s["cpu_pct"]}',
+        f'argusv_memory_rss_mb {s["rss_mb"]}',
+    ]
+    # Per-camera detection counts
+    for cam_id, count in s.get("detections_per_cam", {}).items():
+        lines.append(f'argusv_detections_by_camera{{camera="{cam_id}"}} {count}')
+    # Queue depths
+    for queue_name, depth in s.get("queue_depths", {}).items():
+        lines.append(f'argusv_queue_depth{{queue="{queue_name}"}} {depth}')
+    return "\n".join(lines) + "\n"
 
 
 def _resolve_detection_thumbnail_url(det) -> str | None:

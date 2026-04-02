@@ -33,15 +33,20 @@ Base = declarative_base()
 class Camera(Base):
     __tablename__ = "cameras"
 
-    camera_id  = Column(String, primary_key=True)   # e.g. "cam-01"
-    name       = Column(String, nullable=False)
-    rtsp_url   = Column(String)
-    zone_id    = Column(UUID(as_uuid=True), ForeignKey("zones.zone_id"), nullable=True)
-    status     = Column(String, default="online")   # online | offline | disabled
-    resolution = Column(String)
-    fps        = Column(Integer, default=25)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    last_seen  = Column(DateTime, default=datetime.utcnow)
+    camera_id     = Column(String, primary_key=True)   # e.g. "cam-01"
+    name          = Column(String, nullable=False)
+    rtsp_url      = Column(String)
+    zone_id       = Column(UUID(as_uuid=True), ForeignKey("zones.zone_id"), nullable=True)
+    status        = Column(String, default="online")   # online | offline | disabled
+    resolution    = Column(String)
+    fps           = Column(Integer, default=25)        # stream FPS (metadata only)
+    created_at    = Column(DateTime, default=datetime.utcnow)
+    last_seen     = Column(DateTime, default=datetime.utcnow)
+    # Per-camera detection overrides. null = use global cfg defaults.
+    # Schema: {"detect_classes":{"0":"person"},"conf_threshold":0.55,
+    #          "detect_fps":3,"use_motion_gate":true,"loiter_sec":60,
+    #          "track_update_sec":10,"track_evict_sec":5}
+    detect_config = Column(JSONB, nullable=True)
 
     segments   = relationship("Segment",   back_populates="camera_rel", lazy="dynamic")
     detections = relationship("Detection", back_populates="camera_rel", lazy="dynamic")
@@ -64,8 +69,11 @@ class Segment(Base):
     has_motion      = Column(Boolean, default=False)
     has_detections  = Column(Boolean, default=False)
     detection_count = Column(Integer, default=0)
-    retain_until    = Column(DateTime, nullable=True)
-    locked          = Column(Boolean, default=False)
+    retain_until         = Column(DateTime, nullable=True)
+    locked               = Column(Boolean, default=False)
+    description          = Column(Text,    nullable=True)        # GPT-4o scene description for this chunk
+    description_embedding= Column(Vector(1536), nullable=True)   # text-embedding-3-small for RAG search
+    thumbnail_url        = Column(String,  nullable=True)        # mid-segment frame for UI preview
 
     camera_rel = relationship("Camera",    back_populates="segments")
     detections = relationship("Detection", back_populates="segment", lazy="dynamic")
@@ -77,10 +85,14 @@ class Zone(Base):
     __tablename__ = "zones"
 
     zone_id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    camera_id           = Column(String, ForeignKey("cameras.camera_id"), nullable=True, index=True)
     name                = Column(String, nullable=False)
     polygon_coords      = Column(JSONB, nullable=False)  # [[x,y], ...]  normalised 0..1
     zone_type           = Column(String, default="security")
     dwell_threshold_sec = Column(Integer, default=30)
+    # Per-zone object class allow-list. null = accept all globally configured classes.
+    # Example: ["person"] for entrance, ["car","truck","bus"] for parking lot.
+    allowed_classes     = Column(JSONB, nullable=True)
     active              = Column(Boolean, default=True)
     created_at          = Column(DateTime, default=datetime.utcnow)
     updated_at          = Column(DateTime, nullable=True)

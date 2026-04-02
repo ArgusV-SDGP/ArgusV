@@ -16,6 +16,7 @@ from shapely.geometry import Polygon
 from sqlalchemy.orm import Session
 
 import config as cfg
+from const import REDIS_ZONE_CHANNEL, REDIS_ZONE_CONFIG, REDIS_ZONES_VERSION
 from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_roles
 from db.connection import get_db
 from db.models import Camera, Incident, Rule, Zone
@@ -25,10 +26,14 @@ logger = logging.getLogger("api.zones")
 
 
 class ZoneCreate(BaseModel):
+    camera_id: str = Field(min_length=1)
     name: str = Field(min_length=1)
     polygon_coords: list[list[float]]
     zone_type: str = "security"
     dwell_threshold_sec: int = Field(default=30, ge=1)
+    # Per-zone object class allow-list. null = accept all globally configured classes.
+    # Example: ["person"] for entrance zone, ["car","truck","bus"] for parking lot.
+    allowed_classes: Optional[list[str]] = None
     active: bool = True
 
 
@@ -56,24 +61,28 @@ def _parse_rule(rule: Rule) -> dict[str, Any]:
 
 
 class ZonePatch(BaseModel):
+    camera_id: Optional[str] = None
     name: Optional[str] = Field(default=None, min_length=1)
     polygon_coords: Optional[list[list[float]]] = None
     zone_type: Optional[str] = None
     dwell_threshold_sec: Optional[int] = Field(default=None, ge=1)
+    allowed_classes: Optional[list[str]] = None  # set to [] to clear (allow all)
     active: Optional[bool] = None
 
 
 def _parse_zone(zone: Zone, rules: list[Rule] | None = None) -> dict[str, Any]:
     return {
         "zone_id": str(zone.zone_id),
+        "camera_id": zone.camera_id,
         "name": zone.name,
         "polygon_coords": zone.polygon_coords,
         "zone_type": zone.zone_type,
         "dwell_threshold_sec": zone.dwell_threshold_sec,
-        "active": zone.active,
-        "created_at": zone.created_at.isoformat() if zone.created_at else None,
-        "updated_at": zone.updated_at.isoformat() if zone.updated_at else None,
-        "rules": [_parse_rule(r) for r in (rules or [])],
+        "allowed_classes":    zone.allowed_classes,  # null = all classes allowed
+        "active":             zone.active,
+        "created_at":         zone.created_at.isoformat() if zone.created_at else None,
+        "updated_at":         zone.updated_at.isoformat() if zone.updated_at else None,
+        "rules":              [_parse_rule(r) for r in (rules or [])],
     }
 
 
@@ -130,11 +139,11 @@ def _publish_zone_update(zone_id: str, action: str, zone_data: Optional[dict[str
     try:
         r = redis.from_url(cfg.REDIS_URL, decode_responses=True)
         if action in {"created", "updated"} and zone_data is not None:
-            r.set(f"config:zone:{zone_id}", json.dumps(zone_data))
+            r.set(f"{REDIS_ZONE_CONFIG}{zone_id}", json.dumps(zone_data))
         if action == "deleted":
-            r.delete(f"config:zone:{zone_id}")
-        r.incr("config:zones:version")
-        r.publish("config-updates", json.dumps(payload))
+            r.delete(f"{REDIS_ZONE_CONFIG}{zone_id}")
+        r.incr(REDIS_ZONES_VERSION)
+        r.publish(REDIS_ZONE_CHANNEL, json.dumps(payload))
     except Exception as e:
         logger.warning(f"Failed to publish zone update for {zone_id}: {e}")
 
@@ -142,6 +151,7 @@ def _publish_zone_update(zone_id: str, action: str, zone_data: Optional[dict[str
 @router.get("")
 def list_zones(
     active_only: bool = Query(False),
+    camera_id: Optional[str] = Query(None),
     zone_type: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER)),
@@ -149,6 +159,8 @@ def list_zones(
     query = db.query(Zone)
     if active_only:
         query = query.filter(Zone.active == True)
+    if camera_id:
+        query = query.filter(Zone.camera_id == camera_id)
     if zone_type:
         query = query.filter(Zone.zone_type == zone_type)
     zones = query.order_by(Zone.created_at.desc()).all()
@@ -180,13 +192,17 @@ def create_zone(
     db: Session = Depends(get_db),
     _user: dict = Depends(require_roles(ROLE_ADMIN, ROLE_OPERATOR)),
 ):
+    if not db.query(Camera).filter(Camera.camera_id == payload.camera_id).first():
+        raise HTTPException(400, "Invalid camera_id")
     polygon_coords = _validate_polygon(payload.polygon_coords)
     zone = Zone(
         zone_id=uuid.uuid4(),
+        camera_id=payload.camera_id,
         name=payload.name.strip(),
         polygon_coords=polygon_coords,
         zone_type=payload.zone_type,
         dwell_threshold_sec=payload.dwell_threshold_sec,
+        allowed_classes=payload.allowed_classes or None,
         active=payload.active,
     )
     db.add(zone)
@@ -208,11 +224,15 @@ def update_zone(
     zone = db.query(Zone).filter(Zone.zone_id == zid).first()
     if not zone:
         raise HTTPException(404, "Zone not found")
+    if not db.query(Camera).filter(Camera.camera_id == payload.camera_id).first():
+        raise HTTPException(400, "Invalid camera_id")
 
+    zone.camera_id = payload.camera_id
     zone.name = payload.name.strip()
     zone.polygon_coords = _validate_polygon(payload.polygon_coords)
     zone.zone_type = payload.zone_type
     zone.dwell_threshold_sec = payload.dwell_threshold_sec
+    zone.allowed_classes = payload.allowed_classes or None
     zone.active = payload.active
     zone.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
@@ -237,6 +257,11 @@ def patch_zone(
     data = payload.model_dump(exclude_unset=True)
     if "name" in data and data["name"] is not None:
         zone.name = data["name"].strip()
+    if "camera_id" in data:
+        camera_id = data["camera_id"]
+        if camera_id and not db.query(Camera).filter(Camera.camera_id == camera_id).first():
+            raise HTTPException(400, "Invalid camera_id")
+        zone.camera_id = camera_id
     if "polygon_coords" in data and data["polygon_coords"] is not None:
         zone.polygon_coords = _validate_polygon(data["polygon_coords"])
     if "zone_type" in data and data["zone_type"] is not None:
@@ -245,6 +270,9 @@ def patch_zone(
         zone.dwell_threshold_sec = data["dwell_threshold_sec"]
     if "active" in data and data["active"] is not None:
         zone.active = data["active"]
+    if "allowed_classes" in data:
+        # [] means clear (allow all) → store as None; non-empty list stored as-is
+        zone.allowed_classes = data["allowed_classes"] or None
 
     zone.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()

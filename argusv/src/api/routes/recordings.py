@@ -53,6 +53,8 @@ def _serialize_segment(seg: Segment) -> dict[str, Any]:
         "has_detections": seg.has_detections,
         "detection_count": seg.detection_count,
         "locked": seg.locked,
+        "description": seg.description,
+        "thumbnail_url": seg.thumbnail_url,
     }
 
 
@@ -111,9 +113,14 @@ def hls_playlist(
         "#EXT-X-MEDIA-SEQUENCE:0",
         "#EXT-X-PLAYLIST-TYPE:VOD",
     ]
+    prev_end = None
     for seg in segs:
-        dur = float(seg.duration_sec or 0)
-        # Embed the real-world timestamp as a comment so the frontend can use it for seeking
+        dur = max(1.0, float(seg.duration_sec or 1))
+        # Insert discontinuity tag when there is a gap between consecutive segments
+        if prev_end is not None and seg.start_time > prev_end + timedelta(seconds=1):
+            lines.append("#EXT-X-DISCONTINUITY")
+        prev_end = seg.end_time
+        # Embed the real-world timestamp so the frontend can use it for wall-clock seeking
         lines.append(f"#EXT-X-PROGRAM-DATE-TIME:{_format_hls_program_date_time(seg.start_time)}")
         lines.append(f"#EXTINF:{dur:.3f},")
         lines.append(_local_path_to_web(seg.minio_path))

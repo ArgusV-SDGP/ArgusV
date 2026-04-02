@@ -1177,6 +1177,9 @@
         📡 Detection Feed
         <span class="badge" id="feed-badge-tab" style="font-size:10px;padding:1px 6px">0</span>
       </button>
+      <button class="view-tab" id="tab-birdseye" onclick="switchView('birdseye')">
+        🗺️ Bird's Eye
+      </button>
       <button class="view-tab" id="tab-users" onclick="switchView('users')" style="display:none;">
         👤 Users
       </button>
@@ -1221,7 +1224,18 @@
       </div>
     </section>
 
-    <section id="users-section">
+    <!-- ── Bird's Eye Section ── -->
+    <section id="birdseye-section" style="display:none;">
+      <div class="section-header">
+        <div class="section-title">🗺️ Bird's Eye View</div>
+      </div>
+      <div style="text-align:center;">
+        <img id="birdseye-img" src="/api/birdseye" alt="Bird's Eye View"
+             style="max-width:100%;border-radius:12px;border:1px solid var(--border);background:var(--surface);" />
+      </div>
+    </section>
+
+    <section id="users-section" style="display:none;">
       <div class="users-shell">
         <div class="users-panel">
           <div class="users-panel-header">
@@ -1650,28 +1664,43 @@
         const res = await window.ArgusAuth.authFetch('/api/stats');
         const stats = await res.json();
 
-        // Camera health
-        const camOnline = stats.cameras?.filter(c => c.status === 'online').length || 0;
-        const camTotal = stats.cameras?.length || 0;
+        // Camera health (API: stats.cameras.health is the array)
+        const camHealth = stats.cameras?.health || [];
+        const camOnline = stats.cameras?.online ?? camHealth.filter(c => c.status === 'online').length;
+        const camTotal = stats.cameras?.total ?? camHealth.length;
         const camColor = camOnline === camTotal ? 'var(--green)' : (camOnline > 0 ? 'var(--orange)' : 'var(--red)');
         document.getElementById('sys-cameras').innerHTML =
           `<span style="color:${camColor}">●</span> ${camOnline} / ${camTotal}`;
 
-        // Detections & Incidents (24h)
-        document.getElementById('sys-detections').textContent = stats.detections_24h || 0;
-        document.getElementById('sys-incidents').textContent = stats.incidents_24h || 0;
+        // Detections & Incidents (24h) — API uses nested objects
+        document.getElementById('sys-detections').textContent = stats.detections?.last_24h ?? 0;
+        document.getElementById('sys-incidents').textContent = stats.incidents?.last_24h ?? 0;
 
-        // Disk usage
-        const diskGB = ((stats.disk_usage_bytes || 0) / (1024 ** 3)).toFixed(1);
-        const segmentsGB = ((stats.segments_storage_bytes || 0) / (1024 ** 3)).toFixed(1);
-        document.getElementById('sys-disk').textContent = `${segmentsGB} GB (${diskGB} GB total)`;
+        // Disk usage — API returns values already in GB
+        const segmentsGB = (stats.recordings?.total_storage_gb || 0).toFixed(1);
+        const diskGB = (stats.recordings?.disk_usage?.used_gb || 0).toFixed(1);
+        const diskTotalGB = (stats.recordings?.disk_usage?.total_gb || 0).toFixed(1);
+        const diskPct = stats.recordings?.disk_usage?.used_pct ?? 0;
+        document.getElementById('sys-disk').textContent =
+          `${segmentsGB} GB segs · ${diskGB}/${diskTotalGB} GB (${diskPct}%)`;
 
-        // Queue health
-        const queueTotal = Object.values(stats.queues || {}).reduce((sum, q) => sum + q, 0);
+        // Queue health — API: stats.bus.queue_health, each entry has a .size field
+        const queueHealth = stats.bus?.queue_health || {};
+        const queueTotal = Object.values(queueHealth).reduce((sum, q) => sum + (q.size || 0), 0);
         const queueColor = queueTotal < 100 ? 'var(--green)' : (queueTotal < 500 ? 'var(--orange)' : 'var(--red)');
         const queueStatus = queueTotal < 100 ? 'OK' : (queueTotal < 500 ? 'WARN' : 'CRITICAL');
         document.getElementById('sys-queue').innerHTML =
           `<span style="color:${queueColor}">●</span> ${queueStatus} (${queueTotal})`;
+
+        // Seed session counters from API on first load (if WS hasn't fired yet)
+        const byThreat = stats.incidents?.by_threat_level || {};
+        if (total === 0 && stats.incidents?.last_24h > 0) {
+          counters['HIGH']   = byThreat['HIGH']   || 0;
+          counters['MEDIUM'] = byThreat['MEDIUM'] || 0;
+          counters['LOW']    = byThreat['LOW']    || 0;
+          total = stats.incidents.last_24h;
+          updateCounters();
+        }
 
       } catch (err) {
         console.error('Failed to load system stats:', err);
@@ -1690,13 +1719,33 @@
       currentView = view;
       document.getElementById('tab-cameras').classList.toggle('active', view === 'cameras');
       document.getElementById('tab-feed').classList.toggle('active', view === 'feed');
+      document.getElementById('tab-birdseye').classList.toggle('active', view === 'birdseye');
       document.getElementById('tab-users').classList.toggle('active', view === 'users');
-      document.getElementById('camera-grid-section').style.display = view === 'cameras' ? 'block' : 'none';
-      document.getElementById('feed-section').style.display = view === 'feed' ? 'block' : 'none';
-      document.getElementById('users-section').style.display = view === 'users' ? 'block' : 'none';
+      document.getElementById('camera-grid-section').style.display = view === 'cameras' ? '' : 'none';
+      document.getElementById('feed-section').style.display = view === 'feed' ? '' : 'none';
+      document.getElementById('birdseye-section').style.display = view === 'birdseye' ? '' : 'none';
+      document.getElementById('users-section').style.display = view === 'users' ? '' : 'none';
+      // Start/stop birdseye auto-refresh
+      if (view === 'birdseye') startBirdseyeRefresh();
+      else stopBirdseyeRefresh();
       if (view === 'users') {
         loadUsers();
       }
+    }
+
+    // ── Bird's Eye auto-refresh ──────────────────────────────────────────────
+    let birdseyeTimer = null;
+    function startBirdseyeRefresh() {
+      stopBirdseyeRefresh();
+      refreshBirdseye();
+      birdseyeTimer = setInterval(refreshBirdseye, 2000);
+    }
+    function stopBirdseyeRefresh() {
+      if (birdseyeTimer) { clearInterval(birdseyeTimer); birdseyeTimer = null; }
+    }
+    function refreshBirdseye() {
+      const img = document.getElementById('birdseye-img');
+      if (img) img.src = '/api/birdseye?t=' + Date.now();
     }
 
     function escapeHtml(value) {

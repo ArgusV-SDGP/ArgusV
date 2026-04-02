@@ -52,3 +52,19 @@ def create_tables():
     with _sync_engine.begin() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
     Base.metadata.create_all(_sync_engine)
+    _ensure_backfill_columns()
+
+
+def _ensure_backfill_columns() -> None:
+    """
+    Backfill columns that may be missing in databases bootstrapped from older models.
+
+    `create_all()` creates missing tables but does not alter existing ones, so
+    runtime can fail when ORM models include newly added columns.
+    """
+    with _sync_engine.begin() as conn:
+        conn.execute(text("ALTER TABLE segments ADD COLUMN IF NOT EXISTS description TEXT"))
+        conn.execute(
+            text("ALTER TABLE segments ADD COLUMN IF NOT EXISTS description_embedding vector(1536)")
+        )
+        conn.execute(text("ALTER TABLE segments ADD COLUMN IF NOT EXISTS thumbnail_url VARCHAR"))
