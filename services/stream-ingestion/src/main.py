@@ -56,6 +56,7 @@ async def consume_raw_detections(
                 value=json.dumps(vlm_request).encode(),
             )
             logger.info("Forwarded VLM request: %s", vlm_request["request_id"])
+            await consumer.commit()
         except Exception as exc:
             logger.error("Error processing raw-detections message: %s", exc)
 
@@ -67,11 +68,26 @@ async def lifespan(app: FastAPI):
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
         group_id=CONSUMER_GROUP,
         auto_offset_reset="earliest",
+        enable_auto_commit=False,
     )
     producer = AIOKafkaProducer(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
 
-    await consumer.start()
-    await producer.start()
+    consumer_started = False
+    producer_started = False
+    try:
+        await consumer.start()
+        consumer_started = True
+        await producer.start()
+        producer_started = True
+    except Exception:
+        logger.exception(
+            "Failed to start Kafka consumer/producer, shutting down partially-started clients."
+        )
+        if consumer_started:
+            await consumer.stop()
+        if producer_started:
+            await producer.stop()
+        raise
     logger.info(
         "Stream Ingestion: consuming '%s', producing '%s'",
         RAW_DETECTIONS_TOPIC,
@@ -86,7 +102,8 @@ async def lifespan(app: FastAPI):
         try:
             await task
         except asyncio.CancelledError:
-            pass
+            # Task was cancelled as part of application shutdown; this is expected.
+            logger.debug("Background consumption task cancelled during shutdown.")
         await consumer.stop()
         await producer.stop()
         logger.info("Stream Ingestion: Kafka consumer and producer stopped.")

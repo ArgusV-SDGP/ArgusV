@@ -61,6 +61,7 @@ async def consume_actions(consumer: AIOKafkaConsumer) -> None:
                 action.get("action_type"),
             )
             await dispatch_notification(action)
+            await consumer.commit()
         except Exception as exc:
             logger.error("Error processing actions message: %s", exc)
 
@@ -72,6 +73,7 @@ async def lifespan(app: FastAPI):
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
         group_id=CONSUMER_GROUP,
         auto_offset_reset="earliest",
+        enable_auto_commit=False,
     )
 
     await consumer.start()
@@ -85,7 +87,8 @@ async def lifespan(app: FastAPI):
         try:
             await task
         except asyncio.CancelledError:
-            pass
+            # Task was cancelled as part of application shutdown; this is expected.
+            logger.debug("Notification consumer task cancelled during shutdown.")
         await consumer.stop()
         logger.info("Notification: Kafka consumer stopped.")
 
