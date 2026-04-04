@@ -1,10 +1,11 @@
 """
-api/routes/chat.py — Grounded chat endpoint (RAG + OpenAI)
------------------------------------------------------------
+api/routes/chat.py — Grounded chat endpoint (RAG + configurable LLM provider)
+------------------------------------------------------------------------------
 POST /api/chat
   - Embeds the user message using the local sentence-transformer model
   - Retrieves the most semantically relevant Detection summaries from pgvector
-  - Calls the configured LLM with the retrieved context as grounding
+  - Calls the configured LLM provider (openai | gemini | ollama | llamacpp)
+    with the retrieved context as grounding
   - Returns the assistant answer + source clips for citation
 
 Tasks: CHAT-01
@@ -15,7 +16,7 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import config as cfg
@@ -23,6 +24,7 @@ from auth.jwt_handler import ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER, require_rol
 from db.connection import get_db
 from db.models import Detection
 from embeddings.embeddings import vector_db
+from genai.manager import provider as genai_provider
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 logger = logging.getLogger("api.chat")
@@ -46,7 +48,7 @@ class ChatRequest(BaseModel):
     history: list[ChatHistoryItem] = []
     camera_id: Optional[str] = None
     zone_id: Optional[str] = None
-    limit: int = 6   # number of context clips to retrieve
+    limit: int = Field(6, ge=1, le=50)   # number of context clips to retrieve
 
 
 class SourceClip(BaseModel):
@@ -70,8 +72,8 @@ async def chat(
 ):
     """
     Grounded conversational search over camera footage summaries.
-    Retrieves semantically relevant clips via pgvector, then asks the LLM
-    to answer the user's question using that context.
+    Retrieves semantically relevant clips via pgvector, then asks the
+    configured LLM provider to answer the user's question using that context.
     """
     if not payload.message.strip():
         raise HTTPException(400, "message must not be empty")
@@ -114,14 +116,11 @@ async def chat(
 
     context_block = "\n\n".join(context_lines) if context_lines else "No relevant footage found."
 
-    # ── 3. Call the LLM ──────────────────────────────────────────────────────
-    if not cfg.OPENAI_API_KEY:
-        raise HTTPException(503, "No LLM API key configured (OPENAI_API_KEY)")
-
+    # ── 3. Build prompt messages ─────────────────────────────────────────────
     messages: list[dict] = [{"role": "system", "content": _SYSTEM_PROMPT}]
 
-    # Inject prior conversation turns
-    for turn in payload.history[-10:]:   # cap at last 10 turns to stay within context
+    # Inject prior conversation turns (cap at last 10 to stay within context)
+    for turn in payload.history[-10:]:
         if turn.role in {"user", "assistant"}:
             messages.append({"role": turn.role, "content": turn.content})
 
@@ -132,25 +131,14 @@ async def chat(
     )
     messages.append({"role": "user", "content": grounded_message})
 
+    # ── 4. Call the configured LLM provider ─────────────────────────────────
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {cfg.OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": cfg.VLM_MODEL,
-                    "messages": messages,
-                    "max_tokens": 512,
-                    "temperature": 0.3,
-                },
-            )
-            resp.raise_for_status()
-            answer = resp.json()["choices"][0]["message"]["content"].strip()
+        answer = await genai_provider.complete_chat(messages)
+    except ValueError as e:
+        logger.error(f"[Chat] Provider error: {e}")
+        raise HTTPException(503, str(e))
     except httpx.HTTPStatusError as e:
-        logger.error(f"[Chat] OpenAI error: {e.response.text}")
+        logger.error(f"[Chat] LLM HTTP error: {e.response.text}")
         raise HTTPException(502, f"LLM request failed: {e.response.status_code}")
     except Exception as e:
         logger.error(f"[Chat] Unexpected error: {e}", exc_info=True)
